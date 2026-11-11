@@ -1,10 +1,38 @@
 {
  "opus": {
-  "standing": "due",
-  "attempts": []
+  "standing": "live",
+  "attempts": [
+   {
+    "attempt": 1,
+    "state": "submitted",
+    "job_state": null,
+    "finished_at": null,
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null
+   }
+  ]
  },
  "sol": {
-  "standing": "due",
-  "attempts": []
+  "standing": "live",
+  "attempts": [
+   {
+    "attempt": 1,
+    "state": "submitted",
+    "job_state": null,
+    "finished_at": null,
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null
+   }
+  ]
  }
 }
