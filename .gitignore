@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+# Evidence files, prompts and transcripts quote news text and live outside the repository
+# (~/reviews/texas-cutoff-format-test/private/). Only their hashes enter git.
+private/
+*.rollout.jsonl
+rollout-*.jsonl
