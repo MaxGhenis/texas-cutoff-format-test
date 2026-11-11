@@ -4,7 +4,7 @@
     cutoff status               what has run, by wave, family and arm
     cutoff dispatch [--wave N] [--family F] [--limit K] [--dry-run] [--pilot]
     cutoff collect              copy finished contexts into PRIVATE/contexts/, parse and audit them
-    cutoff dryrun [--family F] [--again]
+    cutoff dryrun [--family F [--again]]
                                 each model's dry run of the closed setup, which dispatch waits for
     cutoff tick                 collect, the dry runs, then dispatch: what the scheduled job runs
     cutoff flags [--clean KEY | --contaminated KEY] [--reason TEXT]
@@ -35,7 +35,7 @@ def main(argv=None) -> int:
     sub.add_parser("collect")
     dr = sub.add_parser("dryrun")
     dr.add_argument("--family", choices=("opus", "sol"), default=None)
-    dr.add_argument("--again", action="store_true", help="send one more dry run for a family held after two failures")
+    dr.add_argument("--again", action="store_true", help="send one more dry run for the held family that --family names")
     sub.add_parser("tick")
     fl = sub.add_parser("flags")
     fl.add_argument("--clean", default=None)

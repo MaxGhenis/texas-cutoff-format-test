@@ -146,3 +146,20 @@ def test_the_marker_is_the_one_subfleet_checks_for():
     if not contracts.exists():
         pytest.skip("Subfleet's source is not on this machine")
     assert f'HEADLESS_MARKER = "{prompts.HEADLESS_MARKER}"' in contracts.read_text()
+
+
+def test_reference_check_allows_last_bit_rounding_and_nothing_more():
+    ref = json.loads((paths.DESIGN / "reference.json").read_text())
+    assert build.first_difference(ref, json.loads(json.dumps(ref))) is None
+    label = next(iter(ref["runs"]))
+    jump = ref["runs"][label]["questions"]["ercot_pause_lifted"]["jump"]
+    for change, same in ((jump * (1 + 2e-16), True), (jump + 1e-6, False)):
+        other = json.loads(json.dumps(ref))
+        other["runs"][label]["questions"]["ercot_pause_lifted"]["jump"] = change
+        where = build.first_difference(ref, other)
+        assert (where is None) is same, where
+        if not same:
+            assert where.startswith(f"$.runs.{label}.questions.ercot_pause_lifted.jump")
+    other = json.loads(json.dumps(ref))
+    other["runs"][label]["family"] = "MOCK"
+    assert build.first_difference(ref, other) == f"$.runs.{label}.family: {ref['runs'][label]['family']!r} against 'MOCK'"

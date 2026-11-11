@@ -20,6 +20,7 @@ import csv
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 
 from . import design, evidence, paths, prompts, sources
@@ -213,6 +214,30 @@ def _json(obj) -> str:
     return json.dumps(obj, indent=1, sort_keys=False) + "\n"
 
 
+def first_difference(a, b, path: str = "$") -> str | None:
+    """Where two JSON values first differ, or None. Numbers match within 1e-9 of each other: numpy's sums
+    can round the last bit differently on another processor, and `reference.json` must check on any machine."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return None if a is b else f"{path}: {a!r} against {b!r}"
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return None if math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9) else f"{path}: {a!r} against {b!r}"
+    if isinstance(a, dict) and isinstance(b, dict):
+        if list(a) != list(b):
+            return f"{path}: keys {list(a)} against {list(b)}"
+        for k in a:
+            if d := first_difference(a[k], b[k], f"{path}.{k}"):
+                return d
+        return None
+    if isinstance(a, list) and isinstance(b, list):
+        if len(a) != len(b):
+            return f"{path}: {len(a)} items against {len(b)}"
+        for i, (x, y) in enumerate(zip(a, b)):
+            if d := first_difference(x, y, f"{path}[{i}]"):
+                return d
+        return None
+    return None if a == b else f"{path}: {a!r} against {b!r}"
+
+
 def files_json(records: dict) -> str:
     return _json({"header": evidence.HEADER, "files": [records[x] for x in sources.LABELS if x in records]})
 
@@ -267,8 +292,9 @@ def check(b: dict) -> list[str]:
             problems.append(f"prompt {r['prompt']}: its row differs from design/prompts.csv")
     if (paths.DESIGN / "contexts.csv").read_text() != to_csv(b["contexts"]):
         problems.append("design/contexts.csv differs from design.py's rows")
-    if (paths.DESIGN / "reference.json").read_text() != _json(b["reference"]):
-        problems.append("design/reference.json differs from the sealed answers")
+    where = first_difference(json.loads((paths.DESIGN / "reference.json").read_text()), json.loads(_json(b["reference"])))
+    if where:
+        problems.append(f"design/reference.json differs from the sealed answers at {where}")
     if (paths.DESIGN / "sandbox.json").read_text() != _json(b["sandbox"]):
         problems.append("design/sandbox.json differs")
     return problems

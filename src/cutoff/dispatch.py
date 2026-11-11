@@ -7,12 +7,13 @@ context's id and attempt number, so sending the same attempt twice creates one j
 `dispatch` refuses to send anything unless the registration stands (`registration.problems`): the
 stamped list exists, the briefs and the four design tables that name the stimulus
 (`registration.STIMULUS`) still match it, and each prompt file on disk has the hash
-`design/prompts.csv` gives it.
+`design/prompts.csv` gives it. It also refuses while the sandbox folder holds anything besides the two
+notes with their built text (`sandbox_problems`).
 
 Dry run: a family sends nothing until its dry run has passed (`dryrun.py`).
 
-Pilot: until a family's first context passes, it runs one context at a time, and two failed attempts
-with none passed hold it until a person sends the next by hand (`pilot`).
+Pilot: until a family's first context passes, it runs one context at a time, and two failed answers
+or three runs with no answer, with none passed, hold it until a person sends the next by hand (`pilot`).
 
 Waves: wave 1 (the first batch) goes first. A family's wave 2 starts when its wave 1 has finished.
 Wave 3 (replicates 4 to 6) starts only after `design/replicates.json` exists, and only up to the
@@ -31,6 +32,7 @@ from . import design, dryrun, paths, registration, store
 
 MAX_IN_FLIGHT = int(os.environ.get("CUTOFF_MAX_IN_FLIGHT", "4"))  # per family
 PILOT_FAILURES = 2
+PILOT_LOST = 3
 
 
 def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
@@ -38,16 +40,17 @@ def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
 
     Until a family's first context passes, it runs one context at a time, so a fault in the closed
     setup (say, a lane that reads the folder's note and writes the code word) costs one attempt, not
-    a wave. After two failed attempts with none passed, it stops until a person reads them and sends
-    the next one by hand with `cutoff dispatch --pilot`."""
+    a wave. After two failed answers, or three runs that ended with no answer, with none passed, it
+    stops until a person reads them and sends the next one by hand with `cutoff dispatch --pilot`.
+    A withdrawn job never ran and counts toward neither."""
     states = [a["state"] for r in rows if r["family"] == fam for a in metas[r["context"]]["attempts"]]
     if "passed" in states:
         return MAX_IN_FLIGHT, None
-    failed = states.count("failed")
-    if failed >= PILOT_FAILURES:
-        return 0, (f"{fam}: {failed} failed attempts and none passed; read them (cutoff status, the attempt "
-                   "folders) and send the next one by hand with `cutoff dispatch --family "
-                   f"{fam} --limit 1 --pilot`")
+    failed, lost = states.count("failed"), states.count("lost")
+    if failed >= PILOT_FAILURES or lost >= PILOT_LOST:
+        return 0, (f"{fam}: {failed} failed answers and {lost} runs with no answer, and none passed; read them "
+                   "(cutoff status, the attempt folders) and send the next one by hand with "
+                   f"`cutoff dispatch --family {fam} --limit 1 --pilot`")
     return 1, None
 
 

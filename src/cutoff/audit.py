@@ -115,7 +115,9 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
         if not set(init.get("tools") or []) <= CLAUDE_TOOLS:
             problems.append(f"stream: init lists tools {init.get('tools')}")
         if init.get("mcp_servers"):
-            problems.append(f"stream: init lists MCP servers {init.get('mcp_servers')}")
+            servers = init.get("mcp_servers")
+            count = len(servers) if isinstance(servers, (list, dict)) else 1
+            problems.append(f"stream: init lists {count} MCP server(s)")  # names stay in the private stream
         if not _same_folder(init.get("cwd"), sandbox):
             problems.append(f"stream: init working folder {init.get('cwd')!r} is not the sandbox")
     models, calls = set(), []

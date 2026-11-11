@@ -200,18 +200,54 @@ def test_two_failures_with_no_pass_hold_the_family_until_sent_by_hand(ready, cap
     sol = [r for r in ROWS if r["wave"] == 1 and r["family"] == "sol"]
     store.write_meta({"context": sol[0]["context"], "attempts": [{"attempt": 1, "state": "failed"}, {"attempt": 2, "state": "failed"}]})
     assert dispatch.main(family="sol") == 0
-    assert ready == [] and "holding sol: 2 failed attempts" in capsys.readouterr().out
+    assert ready == [] and "holding sol: 2 failed answers and 0 runs with no answer" in capsys.readouterr().out
     assert dispatch.main(family="sol", limit=1, pilot_ok=True) == 0
     assert len(ready) == 1
     assert dispatch.main(family="sol", pilot_ok=True) == 0
     assert len(ready) == 1  # the hand-sent pilot is live, so no room
 
 
-def test_lost_and_withdrawn_runs_never_trip_the_pilot_hold():
+@pytest.mark.parametrize(
+    "spread, held",
+    [
+        ({0: ("lost", "withdrawn", "lost", "failed")}, False),  # two lost and one failed
+        ({0: ("withdrawn",) * 9}, False),  # withdrawn jobs never ran
+        ({0: ("lost", "lost"), 1: ("lost",)}, True),  # three lost, across contexts
+        ({0: ("failed",), 1: ("failed",)}, True),
+        ({0: ("lost",) * 5, 1: ("passed",)}, False),  # a pass ends the pilot
+    ],
+)
+def test_the_pilot_holds_a_family_after_two_failed_answers_or_three_runs_with_no_answer(spread, held):
     rows = [r for r in ROWS if r["family"] == "opus"]
     metas = {r["context"]: meta() for r in ROWS}
-    metas[rows[0]["context"]] = meta("lost", "withdrawn", "lost", "failed")
-    assert dispatch.pilot(ROWS, metas, "opus") == (1, None)
+    for i, states in spread.items():
+        metas[rows[i]["context"]] = meta(*states)
+    cap, why = dispatch.pilot(ROWS, metas, "opus")
+    passed = any("passed" in states for states in spread.values())
+    assert (cap, why is not None) == ((0, True) if held else (dispatch.MAX_IN_FLIGHT if passed else 1, False))
+
+
+def test_a_setup_that_loses_every_run_costs_three_runs_not_a_wave(ready, capsys):
+    """The delta review's counterexample: every opus run ends with no answer, tick after tick."""
+    for _ in range(15):
+        dispatch.main(family="opus")
+        for r in ROWS:
+            m = store.read_meta(r["context"])
+            if m["attempts"] and m["attempts"][-1]["state"] == "submitted":
+                m["attempts"][-1]["state"] = "lost"
+                store.write_meta(m)
+    assert len(ready) == dispatch.PILOT_LOST
+    assert "holding opus: 0 failed answers and 3 runs with no answer" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("pilot_ok", [False, True])
+def test_dispatch_sends_only_for_models_whose_dry_run_passed(ready, monkeypatch, capsys, pilot_ok):
+    pass_one("opus")
+    pass_one("sol")
+    monkeypatch.setattr(dispatch.dryrun, "passed", lambda family: family == "opus")
+    assert dispatch.main(pilot_ok=pilot_ok) == 0
+    assert ready and all(c[c.index("-m") + 1] == design.PIN["opus"] for c in ready)
+    assert "holding sol: its dry run has not passed" in capsys.readouterr().out
 
 
 def test_dispatch_sends_nothing_when_any_due_prompt_file_differs(ready):

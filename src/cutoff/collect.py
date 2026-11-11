@@ -5,12 +5,13 @@ For each attempt whose Subfleet job has ended, `collect` copies the launch recor
 the finalization record and the prompt as sent into PRIVATE/contexts/<context>/a<N>/, runs the audit
 (`audit.py`) and the answer check (`response.py`), and sets the attempt's state (`store.py`).
 
-An answer whose `prior_context` does not begin with "none" waits in state `review` for the blinded
-reading: `cutoff flags` prints each distinct text with its key and nothing else, the reader files a
-decision in `review/prior_context.csv` (`cutoff flags --clean KEY` or `--contaminated KEY`), and the
-next `collect` passes or fails the attempt. A decision, once filed, stands: `decide` refuses to change
-it. The public file holds each key, decision and reason; the texts, which can quote the evidence, go
-to PRIVATE/review/prior_context_texts.csv.
+An answer whose `prior_context` says more than a bare "none", "nothing" or "n/a" waits in state
+`review` for the blinded reading: `cutoff flags` prints each distinct text with its key and nothing
+else, the reader files a decision in `review/prior_context.csv` (`cutoff flags --clean KEY` or
+`--contaminated KEY`), and the next `collect` passes or fails the attempt. Each model's dry run
+(`dryrun.py`) puts its own `prior_context` text, if any, through the same reading. A decision, once
+filed, stands: `decide` refuses to change it. The public file holds each key, decision and reason;
+the texts, which can quote the evidence, go to PRIVATE/review/prior_context_texts.csv.
 
 `outputs/answers.csv` holds every passed context's numbers, one row per question and cell, and
 `outputs/attempts.csv` every attempt's state. Both are rebuilt in full from the private store, so
@@ -251,6 +252,11 @@ def flagged() -> dict[str, dict]:
             text = str(json.loads(answer.read_text())["forecaster"].get("prior_context") or "").strip()
             rec = out.setdefault(key, {"text": text, "count": 0, "decision": decisions.get(key, "")})
             rec["count"] += 1
+    from . import dryrun
+
+    for key, text in dryrun.flagged_texts().items():  # the dry runs' texts take the same reading
+        rec = out.setdefault(key, {"text": text, "count": 0, "decision": decisions.get(key, "")})
+        rec["count"] += 1
     return out
 
 
