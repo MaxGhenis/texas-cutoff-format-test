@@ -1,0 +1,8 @@
+{
+ "folder": "the closed contexts' working folder (CUTOFF_SANDBOX); it holds only these files",
+ "canary_word": "quillwort-1110",
+ "files": {
+  "CLAUDE.md": "d130acb91479567a85ce65db1f11af880b434ff005e648ff7ade6564ab57edb4",
+  "AGENTS.md": "d130acb91479567a85ce65db1f11af880b434ff005e648ff7ade6564ab57edb4"
+ }
+}

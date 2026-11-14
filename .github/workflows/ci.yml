@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CUTOFF_PUBLIC_TEXAS: ${{ github.workspace }}/texas-public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: MaxGhenis/texas-governor-data-center-forecasts
+          path: texas-public
+      - uses: astral-sh/setup-uv@v6
+      - name: Install the locked environment
+        run: uv sync --locked --extra dev --python 3.13
+      - name: Tests
+        run: .venv/bin/pytest -n 4
+      - name: The committed briefs match what the script writes from the sealed brief
+        run: .venv/bin/python scripts/make_briefs.py --check
+      - name: Rebuild the ten Opus evidence files and their prompts, and check every hash
+        env:
+          CUTOFF_PRIVATE: ${{ runner.temp }}/private
+          CUTOFF_SANDBOX: ${{ runner.temp }}/sandbox
+        run: .venv/bin/cutoff build --check
+      - name: Every change since the stamp has a deviation record
+        if: always()
+        run: .venv/bin/cutoff registration --check

@@ -1,0 +1,116 @@
+{
+ "opus": {
+  "standing": "live",
+  "signature": "57bb651ed1f847cc7a68f05eb070dba922acd46831614fa59f3c5ac27d3b7cae",
+  "attempts": [
+   {
+    "current": false,
+    "attempt": 1,
+    "state": "passed",
+    "signature": null,
+    "prompt_sha256": "4cf95e67fea1d11eae589aaf10108b06d6932daf17fc34a93cd90a59f5519311",
+    "job_state": "succeeded",
+    "finished_at": "2026-11-13T16:04:54Z",
+    "problems": [],
+    "tool_calls": 0,
+    "model_served": "claude-opus-5-5",
+    "attested": true,
+    "canary": false,
+    "prior_context_none": true,
+    "prior_key": null,
+    "contaminated": null
+   },
+   {
+    "current": false,
+    "attempt": 2,
+    "state": "withdrawn",
+    "signature": "f8b9d6b5d4d6f1508190afc294f542b4c5eac0c3e601dad36fe11fb17a8760ac",
+    "prompt_sha256": null,
+    "job_state": "cancelled",
+    "finished_at": "2026-11-14T17:37:30Z",
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null,
+    "contaminated": null
+   },
+   {
+    "current": true,
+    "attempt": 3,
+    "state": "submitted",
+    "signature": "57bb651ed1f847cc7a68f05eb070dba922acd46831614fa59f3c5ac27d3b7cae",
+    "prompt_sha256": null,
+    "job_state": null,
+    "finished_at": null,
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null,
+    "contaminated": null
+   }
+  ]
+ },
+ "sol": {
+  "standing": "live",
+  "signature": "c349abf73ea884a4de94e484fd40567b2d89f79d94afe2af79b30596432e9643",
+  "attempts": [
+   {
+    "current": false,
+    "attempt": 1,
+    "state": "review",
+    "signature": null,
+    "prompt_sha256": "4cf95e67fea1d11eae589aaf10108b06d6932daf17fc34a93cd90a59f5519311",
+    "job_state": "succeeded",
+    "finished_at": "2026-11-11T21:18:02Z",
+    "problems": [],
+    "tool_calls": 0,
+    "model_served": null,
+    "attested": false,
+    "canary": false,
+    "prior_context_none": false,
+    "prior_key": "2cdfa8e4ee8a3985f500f8f8c80654a2b4240754a266d4216607f1fd0effef08",
+    "contaminated": null
+   },
+   {
+    "current": false,
+    "attempt": 2,
+    "state": "withdrawn",
+    "signature": "2564f4e51e99243c041639260e668ebcd0d496da8317f1f724777e94222e585d",
+    "prompt_sha256": null,
+    "job_state": "cancelled",
+    "finished_at": "2026-11-14T17:37:30Z",
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null,
+    "contaminated": null
+   },
+   {
+    "current": true,
+    "attempt": 3,
+    "state": "submitted",
+    "signature": "c349abf73ea884a4de94e484fd40567b2d89f79d94afe2af79b30596432e9643",
+    "prompt_sha256": null,
+    "job_state": null,
+    "finished_at": null,
+    "problems": null,
+    "tool_calls": null,
+    "model_served": null,
+    "attested": null,
+    "canary": null,
+    "prior_context_none": null,
+    "prior_key": null,
+    "contaminated": null
+   }
+  ]
+ }
+}
