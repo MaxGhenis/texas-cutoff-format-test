@@ -90,7 +90,7 @@ def test_a_dry_run_that_reports_prior_context_waits_for_the_blinded_reading(lane
     assert collect.flagged()[att["prior_key"]] == {"text": text, "count": 1, "decision": ""}
     dryrun.main(family="opus", show=shows.get)
     assert len(lanes) == 1  # nothing more goes while the reading is open
-    assert collect.decide(att["prior_key"][:10], decision, "MOCK reason") == 0
+    assert collect.decide(att["prior_key"][:10], decision, "MOCK reason", "MOCK-model, Subfleet job MOCK-9") == 0
     dryrun.main(family="opus", show=shows.get)
     assert dryrun.read_meta("opus")["attempts"][0]["state"] == state
     assert dryrun.standing("opus") == ("passed" if decision == "clean" else "held")
@@ -218,9 +218,10 @@ def test_a_collected_dry_run_keeps_what_a_context_keeps_and_publishes_no_lane(la
     assert "MOCK-lane" not in (paths.OUTPUTS / "dryrun.json").read_text()
 
 
-def test_a_long_wrong_product_is_cut_in_the_problem():
-    problems, _ = dryrun.answer_problems('```json\n{"product": "' + "MOCK" * 50 + '", "prior_context": "none"}\n```')
-    assert len(problems[0]) < 80
+def test_a_wrong_product_never_echoes_the_models_text():
+    problems, _ = dryrun.answer_problems('```json\n{"product": "MOCK lane path /Users/MOCK-lane/x", "prior_context": "none"}\n```')
+    assert problems == ["answer: product a string of 33 characters, not 391"]
+    assert dryrun.answer_problems('```json\n{"product": 390, "prior_context": "none"}\n```')[0] == ["answer: product 390, not 391"]
 
 
 @pytest.mark.parametrize("due", [False, True])
@@ -252,8 +253,8 @@ def test_a_pass_counts_only_for_the_launch_and_prompt_it_tried(lanes, monkeypatc
 
 
 def test_dry_runs_of_an_earlier_launch_are_kept_and_judged_but_count_for_nothing(lanes):
-    """An earlier launch's dry run still gets collected when its job ends, and judged against the prompt
-    it was sent; then it reads `superseded`. Nothing of it holds the model or reaches the reading."""
+    """An earlier launch's dry run still gets collected when its job ends, judged against the prompt
+    its job was given, and keeps the state it earned. Nothing of it holds the model or reaches the reading."""
     earlier = "MOCK-earlier-launch"
     old_prompt = "<!-- subfleet:headless -->\nMOCK earlier dry-run prompt\n"
     key = audit.prior_key("MOCK: an earlier text")
@@ -263,6 +264,7 @@ def test_dry_runs_of_an_earlier_launch_are_kept_and_judged_but_count_for_nothing
         {"attempt": 3, "state": "review", "signature": earlier, "prior_key": key},
         {"attempt": 4, "state": "failed", "signature": earlier, "contaminated": True},
         {"attempt": 5, "state": "submitted", "job_id": "MOCK-running", "signature": earlier},
+        {"attempt": 6, "state": "submitted", "job_id": "MOCK-no-record", "signature": earlier},
     ]})  # fmt: skip
     text = paths.PRIVATE / "dryrun" / "opus" / "a3"
     text.mkdir(parents=True)
@@ -270,41 +272,71 @@ def test_dry_runs_of_an_earlier_launch_are_kept_and_judged_but_count_for_nothing
     job = paths.JOBS / "MOCK-old"
     write_attempt(job / "a1", "opus", GOOD, sent=old_prompt)
     (job / "prompt.md").write_text(old_prompt)
-    shows = {"MOCK-old": {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-old/a1"}]},
-             "MOCK-running": {"job": {"state": "running"}, "attempts": []}}  # fmt: skip
+    write_attempt(paths.JOBS / "MOCK-no-record" / "a1", "opus", GOOD, sent=old_prompt)  # its job folder kept no prompt.md
+    done = lambda j: {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": f"{j}/a1"}]}  # noqa: E731
+    shows = {"MOCK-old": done("MOCK-old"), "MOCK-no-record": done("MOCK-no-record"), "MOCK-running": {"job": {"state": "running"}, "attempts": []}}
     dryrun.main(family="opus", show=shows.get)
     atts = dryrun.read_meta("opus")["attempts"]
-    assert [a["state"] for a in atts] == ["superseded", "failed", "superseded", "failed", "submitted", "submitted"]
-    assert atts[0]["judged"] == "passed" and atts[0]["problems"] == [] and atts[0]["prior_context_none"] is True
+    assert [a["state"] for a in atts] == ["passed", "failed", "review", "failed", "submitted", "failed", "submitted"]
+    assert atts[0]["problems"] == [] and atts[0]["prior_context_none"] is True
     assert atts[0]["prompt_sha256"] == dryrun.hashlib.sha256(old_prompt.encode()).hexdigest()
     kept = paths.PRIVATE / "dryrun" / "opus" / "a1"
     assert (kept / "final.md").read_text() == GOOD and (kept / "prompt.submitted.md").read_text() == old_prompt
-    assert atts[2]["judged"] == "review" and key not in collect.flagged()  # its text never reaches the reading
-    assert atts[5]["signature"] == dryrun.signature("opus") and dryrun.standing("opus") == "live"  # the old contaminated flag holds nothing
-    assert len(lanes) == 1
+    assert atts[5]["problems"] == ["the prompt this dry run's job was given is not on record"] and atts[5]["prompt_sha256"] is None
+    assert key not in collect.flagged()  # an earlier text never reaches the reading
+    # The earlier pass, the earlier contaminated flag and the earlier failures hold and release nothing.
+    assert atts[6]["signature"] == dryrun.signature("opus") and dryrun.standing("opus") == "live" and len(lanes) == 1
     public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())["opus"]
     assert public["signature"] == dryrun.signature("opus")
-    assert public["attempts"][0]["judged"] == "passed" and public["attempts"][3]["contaminated"] is True
+    assert [a["current"] for a in public["attempts"]] == [False] * 6 + [True]
+    assert public["attempts"][6]["signature"] == dryrun.signature("opus") and public["attempts"][0]["prompt_sha256"] == atts[0]["prompt_sha256"]
+    assert public["attempts"][3]["contaminated"] is True
     assert "lane_id" not in public["attempts"][0] and "MOCK-old" not in json.dumps(public)
     # The earlier run that is still going gets collected when it ends.
     write_attempt(paths.JOBS / "MOCK-running" / "a1", "opus", "MOCK: no JSON", sent=old_prompt)
     (paths.JOBS / "MOCK-running" / "prompt.md").write_text(old_prompt)
-    shows["MOCK-running"] = {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-running/a1"}]}
+    shows["MOCK-running"] = done("MOCK-running")
     dryrun.main(family="opus", show=shows.get)
-    late = dryrun.read_meta("opus")["attempts"][4]
-    assert late["state"] == "superseded" and late["judged"] == "failed" and dryrun.standing("opus") == "live"
+    assert dryrun.read_meta("opus")["attempts"][4]["state"] == "failed" and dryrun.standing("opus") == "live"
+
+
+def test_a_change_that_is_undone_brings_its_dry_run_back_and_no_other_setup_can_discard_it(lanes, monkeypatch):
+    """Round 2's case: another environment, with another note text, collects this one's finished dry run."""
+    dryrun.main(family="opus", show=lambda job_id: None)
+    write_attempt(paths.JOBS / "MOCK-1" / "a1", "opus", GOOD)
+    (paths.JOBS / "MOCK-1" / "prompt.md").write_text(dryrun.PROMPT)
+    shows = {"MOCK-1": {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-1/a1"}]}}
+    with monkeypatch.context() as m:
+        m.setattr(build, "CANARY_TEXT", build.CANARY_TEXT + "MOCK other environment\n")
+        dryrun.collect("opus", shows.get)  # the other environment collects it; under its signature the run is not current
+        assert dryrun.standing("opus") == "due"
+    assert dryrun.read_meta("opus")["attempts"][0]["state"] == "passed"
+    assert dryrun.passed("opus")  # back here, the pass counts
+    dryrun.main(family="opus", show=shows.get)
+    assert len(lanes) == 1
+
+
+def test_a_current_dry_run_given_another_prompt_fails(lanes):
+    dryrun.main(family="sol", show=lambda job_id: None)
+    other = dryrun.PROMPT + "MOCK addition\n"
+    write_attempt(paths.JOBS / "MOCK-1" / "a1", "sol", GOOD, sent=other)
+    (paths.JOBS / "MOCK-1" / "prompt.md").write_text(other)
+    dryrun.main(family="sol", show=lambda j: {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-1/a1"}]})
+    att = dryrun.read_meta("sol")["attempts"][0]
+    assert att["state"] == "failed" and att["problems"] == ["the prompt as sent differs from the dry-run prompt"]
 
 
 @pytest.mark.parametrize("family", design.FAMILIES)
 def test_a_code_word_anywhere_in_the_stream_fails_the_dry_run(family):
-    """A context that read a folder note can name the word in its reasoning and leave it out of its answer."""
+    """A context that read a folder note can name the word in an earlier message and leave it out of its
+    answer. (Neither provider's kept stream holds reasoning text, so a word named only there stays unseen.)"""
     folder = paths.PRIVATE / "MOCK" / family
     rec = record(family, GOOD)
     if family == "opus":
         rec["events"].insert(1, {"type": "assistant", "message": {"model": audit.CLAUDE_MODEL, "content": [
-            {"type": "thinking", "thinking": f"MOCK: a note asks me to write {build.CANARY_WORD}; I will not"}]}})  # fmt: skip
+            {"type": "text", "text": f"MOCK: a note asks me to write {build.CANARY_WORD}; I will not"}]}})  # fmt: skip
     else:
-        rec["events"].insert(2, {"type": "item.completed", "item": {"type": "reasoning", "text": "MOCK: the note says Quillwort 1110"}})
+        rec["events"].insert(2, {"type": "item.completed", "item": {"type": "agent_message", "text": "MOCK: the note says Quillwort 1110"}})
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "launch.json").write_text(json.dumps(rec["launch"]))
     (folder / "finalization.json").write_text(json.dumps(rec["fin"]))
@@ -332,7 +364,7 @@ def test_the_signature_covers_the_notes_names_and_not_the_private_store(monkeypa
 def test_the_readers_rule_covers_dry_runs_and_the_evidence_file_as_the_readme_does():
     rule = collect.READING_RULE
     for phrase in ("in a dry run, anything about arithmetic or a word to write", "declines to describe its provider's system prompt",
-                   "ends with an evidence file", "describes or quotes that file restates the prompt",
+                   "holds an evidence file", "describes or quotes that file restates the prompt", "quote nothing from the text",
                    "a note or file in its folder, an instruction from a memory or settings file"):  # fmt: skip
         assert phrase in rule, phrase
     readme = " ".join((paths.ROOT / "README.md").read_text().split())

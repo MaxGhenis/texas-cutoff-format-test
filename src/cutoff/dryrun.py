@@ -13,9 +13,11 @@ and holds the model.
 A dry run counts only for what it tried (`signature`): the `subfleet run` arguments this package
 gives, the dry-run prompt and the folder's notes. When any of them changes, earlier dry runs stop
 counting and the model needs a new one. An earlier dry run still gets collected and judged when its
-job ends, against the prompt it was sent, and then takes the state `superseded`; its checks stay on
-record under `judged`. A change inside Subfleet or a provider's CLI leaves the signature alone, and
-the audit of each context catches it.
+job ends, against the prompt its job was given, and keeps the state it earned; it just no longer
+counts (`outputs/dryrun.json` marks each attempt `current` or not). So a change that is later undone
+brings its dry runs back, and no caller can discard another's. A change inside Subfleet or a
+provider's CLI leaves the signature alone; the audit of each context names every launch argument it
+allows, so such a change fails contexts until a deviation admits it.
 
 The dry run sends no study text, so it checks only the sandbox and may run before the registration's
 stamp. Dispatch holds a model until its dry run has passed. A dry run that ends with no answer goes
@@ -36,6 +38,7 @@ import uuid
 
 from . import audit, design, paths, store
 from .prompts import HEADLESS_MARKER
+from .response import _shown
 
 PRODUCT = 17 * 23
 PROMPT = f"""{HEADLESS_MARKER}
@@ -97,7 +100,7 @@ def current(family: str) -> list[dict]:
 def standing(family: str) -> str:
     """passed; live (a dry run awaits its job); review (its `prior_context` awaits the blinded reading);
     held (two failed dry runs, three with no answer, or one read as contaminated, and none passed); or
-    due. Only dry runs of the current launch count: an earlier one ends as `superseded`."""
+    due. Only dry runs of the current launch count (`current`)."""
     atts = current(family)
     states = [a["state"] for a in atts]
     if "passed" in states:
@@ -136,7 +139,7 @@ def answer_problems(final: str) -> tuple[list[str], str | None]:
         return ["answer: no JSON object"], None
     problems = []
     if obj.get("product") != PRODUCT:
-        problems.append(f"answer: product {repr(obj.get('product'))[:40]}, not {PRODUCT}")
+        problems.append(f"answer: product {_shown(obj.get('product'))}, not {PRODUCT}")
     prior = obj.get("prior_context")
     if not isinstance(prior, str) or not prior.strip():
         problems.append("answer: prior_context holds no text")  # as a context's answer fails without one
@@ -144,8 +147,9 @@ def answer_problems(final: str) -> tuple[list[str], str | None]:
     return problems, prior
 
 
-def judge(family: str, attempt_folder, prompt: str = PROMPT) -> dict:
-    """Audit one collected dry run and check its answer against `prompt`, the prompt it was sent."""
+def judge(family: str, attempt_folder, prompt: str | None = PROMPT) -> dict:
+    """Audit one collected dry run and check its answer against `prompt`, the prompt its job was given
+    (None when no record of it remains, which fails the check)."""
     from . import build
 
     read = lambda name: (attempt_folder / name).read_text() if (attempt_folder / name).exists() else ""  # noqa: E731
@@ -153,7 +157,9 @@ def judge(family: str, attempt_folder, prompt: str = PROMPT) -> dict:
     fin = json.loads(read("finalization.json")) if read("finalization.json") else None
     check = (audit.claude if family == "opus" else audit.codex)(read("stream.jsonl"), launch, fin, paths.SANDBOX)
     problems = list(check["problems"])
-    if not audit.sent_prompt(read("prompt.sent.md"), prompt)["ok"]:
+    if prompt is None:
+        problems.append("the prompt this dry run's job was given is not on record")
+    elif not audit.sent_prompt(read("prompt.sent.md"), prompt)["ok"]:
         problems.append("the prompt as sent differs from the dry-run prompt")
     stream = read("stream.jsonl")
     canary = audit.has_canary(stream, build.CANARY_WORD) or audit.has_canary(check["final"], build.CANARY_WORD)
@@ -163,7 +169,7 @@ def judge(family: str, attempt_folder, prompt: str = PROMPT) -> dict:
     problems += more
     (attempt_folder / "final.md").write_text(check["final"])
     record = {
-        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "prompt_sha256": None if prompt is None else hashlib.sha256(prompt.encode()).hexdigest(),
         "problems": problems,
         "tool_calls": check["tool_calls"],
         "model_served": check["model_served"],
@@ -221,9 +227,7 @@ def collect(family: str, show) -> bool:
     for att in meta["attempts"]:
         stale = att.get("signature") != sig  # sent under an earlier launch, prompt or notes: it counts for nothing
         if att["state"] == "review":
-            if stale:
-                att["judged"], att["state"], changed = "review", "superseded", True
-            else:
+            if not stale:
                 changed |= reread(att)
             continue
         if att["state"] != "submitted":
@@ -237,25 +241,23 @@ def collect(family: str, show) -> bool:
         changed = True
         if not done:
             att["state"] = "lost" if info.get("attempts") else "withdrawn"
-        else:
-            att["lane_id"] = done[-1].get("lane_id")
-            src = paths.JOBS / done[-1]["attempt_id"]
-            dest = folder() / family / f"a{att['attempt']}"
-            dest.mkdir(parents=True, exist_ok=True)
-            for name in KEPT:
-                if (src / name).exists():
-                    shutil.copyfile(src / name, dest / name)
-            stream = src / "stream.jsonl" if (src / "stream.jsonl").exists() else src / "stdout"
-            if stream.exists():
-                shutil.copyfile(stream, dest / "stream.jsonl")
-            sent_as = PROMPT
-            if stale and (src.parent / "prompt.md").exists():
-                # Judge an earlier dry run against the prompt its job was given, which Subfleet keeps.
-                sent_as = (src.parent / "prompt.md").read_text()
-                shutil.copyfile(src.parent / "prompt.md", dest / "prompt.submitted.md")
-            att.update(judge(family, dest, sent_as))
-        if stale:
-            att["judged"], att["state"] = att["state"], "superseded"
+            continue
+        att["lane_id"] = done[-1].get("lane_id")
+        src = paths.JOBS / done[-1]["attempt_id"]
+        dest = folder() / family / f"a{att['attempt']}"
+        dest.mkdir(parents=True, exist_ok=True)
+        for name in KEPT:
+            if (src / name).exists():
+                shutil.copyfile(src / name, dest / name)
+        stream = src / "stream.jsonl" if (src / "stream.jsonl").exists() else src / "stdout"
+        if stream.exists():
+            shutil.copyfile(stream, dest / "stream.jsonl")
+        # A current dry run answers PROMPT. An earlier one answers the prompt its own job was given, which
+        # Subfleet keeps beside the attempt; with no such record, the sent-prompt check fails it.
+        given = (src.parent / "prompt.md").read_text() if (src.parent / "prompt.md").exists() else None
+        if given is not None:
+            shutil.copyfile(src.parent / "prompt.md", dest / "prompt.submitted.md")
+        att.update(judge(family, dest, given if stale else PROMPT))
     if changed:
         write_meta(meta)
     return changed
@@ -296,9 +298,10 @@ def write_public() -> None:
             "standing": standing(fam),
             "signature": signature(fam),
             "attempts": [
-                {k: a.get(k) for k in ("attempt", "state", "judged", "signature", "prompt_sha256", "job_state",
-                                        "finished_at", "problems", "tool_calls", "model_served", "attested", "canary",
-                                        "prior_context_none", "prior_key", "contaminated")}  # fmt: skip
+                {"current": a.get("signature") == signature(fam),
+                 **{k: a.get(k) for k in ("attempt", "state", "signature", "prompt_sha256", "job_state", "finished_at",
+                                          "problems", "tool_calls", "model_served", "attested", "canary",
+                                          "prior_context_none", "prior_key", "contaminated")}}  # fmt: skip
                 for a in read_meta(fam)["attempts"]
             ],
         }

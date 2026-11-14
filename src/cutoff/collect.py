@@ -24,6 +24,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -41,10 +42,12 @@ READING_RULE = (
     "its answer: a note or file in its folder, an instruction from a memory or settings file, or anything "
     "about the race, data centers or forecasts of the study's questions (in a dry run, anything about "
     "arithmetic or a word to write). Otherwise file `clean`. A model that restates its prompt, or declines to describe its "
-    "provider's system prompt, shows nothing of that kind. A study prompt ends with an evidence file: web "
+    "provider's system prompt, shows nothing of that kind. A study prompt holds an evidence file: web "
     "search results and page text about the race and data centers. A text that describes or quotes that "
-    "file restates the prompt."
+    "file restates the prompt. Give your reason in your own words and quote nothing from the text."
 )
+QUOTE_RUN = 20  # a reason that shares this many characters in a row with its text quotes it
+READER = re.compile(r"[A-Za-z0-9 .,:()_-]{3,160}")  # who read: a model's name and a job id, never a path
 ANSWER_COLUMNS = [
     "context", "file", "source_family", "family", "arm", "cell", "replicate", "wave", "attempt", "question",
     "key", "value", *QUANTILE_KEYS, "repaired", "prior_read", "canary", "job_id",
@@ -285,6 +288,18 @@ def decide(key_prefix: str, decision: str, reason: str, reader: str = "") -> int
     filed = prior_decisions()
     if key in filed:
         print(f"{key[:12]} already has the decision {filed[key]!r}; a filed decision stands")
+        return 1
+    # The reason and the reader go to a public file, and the text can quote the evidence.
+    text = " ".join(flagged()[key]["text"].split()).lower()
+    said = " ".join(reason.split()).lower()
+    if not said:
+        print("give a reason")
+        return 1
+    if any(said[i : i + QUOTE_RUN] in text for i in range(max(len(said) - QUOTE_RUN + 1, 0))):
+        print("the reason quotes the text; give it in your own words")
+        return 1
+    if not READER.fullmatch(reader or ""):
+        print("name the reader with --reader: the model, and its Subfleet job when a lane read it (letters, digits, spaces and . , : ( ) _ - only)")
         return 1
     rows = []
     if PRIOR_REVIEW.exists():

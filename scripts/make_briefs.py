@@ -8,8 +8,9 @@ prompt every sealed run received). Each brief here copies its three question blo
 
 - the title says "data centers" where the sealed brief says "data center construction", since the
   construction questions are gone;
-- the opening drops the sentence on pooling and logging, puts the as-of date in the past, and says
-  there is no web access and that the evidence file holds what an earlier session's web tools returned;
+- the opening drops the sentence on pooling and logging, puts the as-of date in the past, says there is
+  no web access and that the evidence file holds what an earlier session's web tools returned, and asks
+  the context to reason "from the facts in this brief" where the sealed brief said "current facts";
 - rule 1 says to work from the brief and its evidence file and to use no tool;
 - rule 2 asks a context that knows of any vote count to say so, where the sealed brief said "come
   across" one;
@@ -17,14 +18,16 @@ prompt every sealed run received). Each brief here copies its three question blo
   units other than percent and probabilities);
 - the Output section drops `research_summary`, since no context researches;
 - the paragraph under "The questions" names the two groups of questions that remain;
-- the grid keeps the sealed rules on cells (4, 5) and on reasoning (7). The alone and told briefs give
-  one scenario and ask how it bears on each forecast; the told brief's rule 5 adds two sentences, which
-  name the six shares, say that separate conversations answer the same questions and say that each
-  sees only its own, and adds nothing else;
+- the grid keeps the sealed rules on cells (4, 5) and on reasoning (7), less rule 5's exception for the
+  two dropped questions. The alone and told briefs give one scenario and ask how it bears on each
+  forecast. The told brief's rule 5 opens with two sentences, which name the six shares, say that
+  separate conversations answer the same questions and say that each sees only its own; its last
+  sentence then says "here ... under yours" where the alone brief says "under that scenario";
 - the alone and told briefs ask the context to restate its scenario after its forecasts;
-- rule 8 (the sealed rule 10) asks the context to check what is already in its context besides the
-  brief and its evidence file, and takes a description where the sealed rule asked for a quote, so a
-  model that will not quote its system prompt can still answer "none".
+- rule 8 (the sealed rule 10) opens "Before you forecast" where the sealed rule said "Before you
+  research". It asks the context to check what is already in its context besides the brief and its
+  evidence file, and takes a description where the sealed rule asked for a quote, so a model that will
+  not quote its system prompt can still answer "none".
 
 Placeholders: <<KEY>> (dem_50.5), <<SHARE>> (50.5), <<WINNER>> (Hinojosa) and <<EVIDENCE>>.
 `--check` exits 1 if the committed briefs differ from what this script writes.

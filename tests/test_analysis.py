@@ -280,7 +280,8 @@ def test_an_analysis_with_contexts_still_open_says_interim(monkeypatch):
     out = json.loads((paths.OUTPUTS / "results.json").read_text())["main"]
     assert out["complete"] is False and out["design"]["due"] == 1248 and out["design"]["open"] == 1248
     text = (paths.OUTPUTS / "results.md").read_text()
-    assert "**INTERIM.** 1248 contexts remain open" in text and "nothing below is a registered result" in text
+    assert "**INTERIM.** 1248 contexts remain open (1248 due, 0 running, 0 awaiting the reading); the replicate rule's record" in text
+    assert "nothing below is a registered result" in text
     assert "The replicate rule has not run: wave 1 has not finished." in text
 
 
@@ -292,20 +293,31 @@ def test_a_complete_analysis_counts_the_design_from_the_public_tables_and_checks
     public_tables(monkeypatch, rows, {stopped: "failed"})
     with (paths.OUTPUTS / "attempts.csv").open("a") as fh:  # three failed answers stop a context
         fh.write(f"{stopped},2,,failed,,,,,,,,,,\n{stopped},3,,failed,,,,,,,,,,\n")
+    # Every context at three a share has finished, but the replicate rule left no record: still interim.
     assert A.main() == 0
-    out = json.loads((paths.OUTPUTS / "results.json").read_text())["main"]
-    assert out["complete"] is True and out["design"] == {"passed": 1247, "stopped": 1, "due": 0, "live": 0, "review": 0, "open": 0}
+    both = json.loads((paths.OUTPUTS / "results.json").read_text())
+    out = both["main"]
+    assert out["complete"] is False and out["design"] == {"passed": 1247, "stopped": 1, "due": 0, "live": 0, "review": 0, "open": 0}
     rule = A.rule_now()[0]
     assert out["replicate_rule"] == {"used": 3, "recorded": None, "decided_at": None, "wave_1_finished": True, "rule_now": rule, "agree": False}
+    assert both["strict"]["complete"] is False and both["strict"]["design"] == out["design"]  # the strict block says so too
     text = (paths.OUTPUTS / "results.md").read_text()
-    assert "INTERIM" not in text and "The design at 3 contexts a share: 1247 passed, 1 stopped, 0 open." in text
+    assert "**INTERIM.** The replicate rule's record is missing or disagrees with the rule." in text
+    assert "The design at 3 contexts a share: 1247 passed, 1 stopped, 0 open." in text
     assert f"**The replicate rule has no record, though wave 1 has finished; on its answers the rule gives {rule}.**" in text
-    # A record that agrees with the rule reads plainly; an edited one shows.
+    # With the rule's own record in place, the run is the registered one.
     (paths.OUTPUTS / "replicates.json").write_text(json.dumps({"replicates": rule, "decided_at": "MOCK-time"}))
+    if rule == 3:
+        assert A.main() == 0
+        done = json.loads((paths.OUTPUTS / "results.json").read_text())
+        assert done["main"]["complete"] is True and done["strict"]["complete"] is True
+        assert "INTERIM" not in (paths.OUTPUTS / "results.md").read_text()
     assert A.replicate_record(rule)["agree"] is True
+    # A record edited down shows, and the run reads interim again.
     (paths.OUTPUTS / "replicates.json").write_text(json.dumps({"replicates": 3 if rule != 3 else 4, "decided_at": "MOCK-time"}))
     rec = A.replicate_record(3)
-    assert rec["agree"] is False and "but wave 1's answers give" in "\n".join(A._standing_lines({"design": out["design"], "replicate_rule": rec}))
+    lines = "\n".join(A._standing_lines({"design": out["design"], "replicate_rule": rec, "complete": False}))
+    assert rec["agree"] is False and "but wave 1's answers give" in lines and "**INTERIM.**" in lines
 
 
 def test_the_rule_picks_the_most_replicates_when_wave_1_holds_too_few_answers(monkeypatch):
@@ -344,6 +356,53 @@ def test_main_writes_results_from_the_store(monkeypatch):
     assert A.main() == 0
     out = json.loads((paths.OUTPUTS / "results.json").read_text())
     assert out["main"]["pooled"][ERCOT]["differences"]["alone-grid"]["verdict"] == "equivalent"
-    assert out["registration"] == {"registered": False, "stamped": False, "changed": []}
+    assert out["registration"] == {"registered": False, "stamped": False, "stamp_problems": [], "changed": []}
     assert "Registration: none found" in (paths.OUTPUTS / "results.md").read_text()
     assert math.isclose(out["main"]["contexts"], len({r["context"] for r in rows}))
+
+
+def wave_1_passed():
+    from cutoff import store
+
+    for r in store.design_rows():
+        if r["wave"] == 1:
+            store.write_meta({"context": r["context"], "attempts": [{"attempt": 1, "state": "passed"}]})
+
+
+def test_the_rule_refuses_a_table_that_lags_the_store_and_writes_nothing(monkeypatch, capsys):
+    """A hand-run `cutoff replicates` on a stale outputs/answers.csv would otherwise fall back to six for good."""
+    wave_1_passed()
+    public_tables(monkeypatch, [r for r in mock_rows(sd=1.0) if not (r["wave"] == 1 and r["arm"] == "grid")])
+    assert A.write_replicates() == 1 and "run `cutoff collect` first" in capsys.readouterr().out
+    assert not (paths.DESIGN / "replicates.json").exists()
+
+
+def test_the_rule_records_its_fallback_when_wave_1_cannot_give_a_spread(monkeypatch):
+    import json
+
+    from cutoff import store
+
+    # Every Sol grid context of wave 1 stopped without an answer, so no spread of grid jumps exists for Sol.
+    rows = [r for r in mock_rows(sd=1.0) if not (r["wave"] == 1 and r["family"] == "sol" and r["arm"] == "grid")]
+    for r in store.design_rows():
+        if r["wave"] == 1:
+            lost = r["family"] == "sol" and r["arm"] == "grid"
+            states = ["failed"] * 3 if lost else ["passed"]
+            store.write_meta({"context": r["context"], "attempts": [{"attempt": i + 1, "state": x} for i, x in enumerate(states)]})
+    public_tables(monkeypatch, rows)
+    assert A.write_replicates() == 0
+    record = json.loads((paths.DESIGN / "replicates.json").read_text())
+    assert record["replicates"] == design.R_MAX and "too few answers" in record["fallback"]
+    assert record["spread"] is None and record["projected_se"] is None
+    assert A.write_replicates() == 1  # the rule writes once
+
+
+def test_the_rule_writes_its_choice_and_its_spreads_when_wave_1_is_whole(monkeypatch):
+    import json
+
+    wave_1_passed()
+    public_tables(monkeypatch, mock_rows(sd=1.0))
+    assert A.write_replicates() == 0
+    record = json.loads((paths.DESIGN / "replicates.json").read_text())
+    assert record["replicates"] == A.rule_now()[0] and record["fallback"] is None and record["first_batch_contexts_passed"] == 156
+    assert set(record["projected_se"]) == set(design.PRIMARY)

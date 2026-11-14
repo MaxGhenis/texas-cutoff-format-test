@@ -129,12 +129,13 @@ def test_reader_lists_hold_keys_and_no_text():
 # ------------------------------------------------------------------------------------------ build.write
 
 
-def test_write_refuses_a_sandbox_with_other_files_before_writing_anything(tmp_path):
+def test_write_refuses_a_sandbox_with_other_files_before_writing_anything(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "DESIGN", tmp_path / "design")  # were the refusal to break, nothing real gets written
     paths.SANDBOX.mkdir(parents=True)
     (paths.SANDBOX / "MOCK.txt").write_text("not a canary")
     with pytest.raises(SystemExit, match="other than the canaries"):
         build.write({"evidence": {}, "logs": {}, "prompts": {}, "records": {}, "prompt_rows": [], "contexts": [], "reference": {}, "sandbox": {}})
-    assert not (paths.PRIVATE / "evidence").exists()
+    assert not (paths.PRIVATE / "evidence").exists() and not (tmp_path / "design").exists()
 
 
 def test_canary_text_names_its_word():
@@ -190,6 +191,10 @@ def test_no_brief_or_prompt_holds_the_code_word():
     for arm in ("grid", "alone", "told"):
         assert stem not in (paths.ROOT / "briefs" / f"{arm}.md").read_text().lower()
     assert stem not in dryrun.PROMPT.lower()
-    private = paths.PRIVATE / "prompts"
-    for path in sorted(private.glob("*.md")) if private.is_dir() else []:
-        assert stem not in path.read_text().lower(), path.name
+    # `cutoff build --check` reads every built prompt for the word; here a MOCK build shows the check bites.
+    clean = {"skipped": ["MOCK"], "prompts": {"MOCK__grid": "MOCK prompt body"}, "records": {}, "prompt_rows": [],
+             "contexts": [{"context": "MOCK"}], "reference": json.loads(committed("reference.json").read_text()),
+             "sandbox": json.loads(committed("sandbox.json").read_text())}  # fmt: skip
+    carrier = {**clean, "prompts": {"MOCK__grid": "MOCK prompt body", "MOCK__told": f"MOCK evidence that names {stem.upper()}"}}
+    said = lambda b: [p for p in build.check(b) if "code word" in p]  # noqa: E731
+    assert said(clean) == [] and said(carrier) == ["1 prompt(s) hold the sandbox's code word, starting with MOCK__told"]

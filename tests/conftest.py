@@ -1,5 +1,6 @@
 """Every test runs against its own temporary store: no test reads or writes the real private store, the
-sandbox, Subfleet's job folders or the public review file, and none can start a command."""
+sandbox, Subfleet's job folders or the public review file. `subprocess.run` raises, so no test starts
+a study command; the registration's scope reads `git ls-files`, read-only, through Popen."""
 
 from __future__ import annotations
 
@@ -25,4 +26,5 @@ def isolated_store(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(subprocess, "run", refuse)
     yield root
     # A test that undid these patches (`monkeypatch.undo()`) would have worked on the real folders.
-    assert str(paths.SANDBOX).startswith(str(root)) and str(paths.PRIVATE).startswith(str(root)), "a test left the temporary store"
+    for folder in (paths.PRIVATE, paths.OUTPUTS, paths.SANDBOX, paths.JOBS, collect.PRIOR_REVIEW, registration.REGISTRATION):
+        assert str(folder).startswith(str(root)), f"a test left the temporary store: {folder}"

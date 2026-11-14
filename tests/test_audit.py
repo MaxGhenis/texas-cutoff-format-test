@@ -17,10 +17,11 @@ FINAL = "MOCK final answer"
 
 
 def claude_record():
-    argv = ["claude", "-p", "--model", audit.CLAUDE_MODEL, "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep",
+    # The shape of a real launch under Subfleet's isolated mode, with MOCK values.
+    argv = ["claude", "-p", "--model", audit.CLAUDE_MODEL, "--session-id", "MOCK-session", "--output-format", "stream-json",
+            "--verbose", "--permission-mode", "plan", "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep",
             "--setting-sources", "", "--safe-mode", "--no-chrome", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
-            "--disable-slash-commands", "--permission-mode", "plan", "--add-dir", SANDBOX,
-            "--settings", '{"env":{"MOCK_WATCHDOG":"0"}}']  # fmt: skip
+            "--disable-slash-commands", "--add-dir", SANDBOX, "--settings", '{"env":{"MOCK_WATCHDOG":"0"}}']  # fmt: skip
     events = [
         {"type": "system", "subtype": "init", "model": audit.CLAUDE_MODEL, "tools": ["Read", "Glob", "Grep"],
          "mcp_servers": [], "cwd": SANDBOX},
@@ -33,10 +34,13 @@ def claude_record():
 
 
 def codex_record():
-    argv = ["codex", "exec", "--json", "--ephemeral", "--ignore-user-config", "--ignore-rules",
-            "-c", "project_doc_max_bytes=0", "-c", "features.multi_agent=false", "-c", "features.multi_agent_v2=false",
-            "-c", "features.memories=false", "-c", 'web_search="disabled"', "-m", audit.CODEX_MODEL,
-            "-c", f"model_reasoning_effort={audit.CODEX_EFFORT}", "--sandbox", "read-only"]  # fmt: skip
+    # The shape of a real launch under Subfleet's isolated mode, with MOCK values.
+    argv = ["codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules",
+            "-c", "project_doc_max_bytes=0", "-c", "features.apps=false", "-c", "features.hooks=false",
+            "-c", "features.multi_agent=false", "-c", "features.multi_agent_v2=false", "-c", "features.memories=false",
+            "-c", "shell_environment_policy.experimental_use_profile=false", "-c", 'history.persistence="none"',
+            "-c", 'web_search="disabled"', "-m", audit.CODEX_MODEL, "-c", f"model_reasoning_effort={audit.CODEX_EFFORT}",
+            "--sandbox", "read-only", "--output-last-message", "/MOCK/job/last.md"]  # fmt: skip
     events = [
         {"type": "thread.started", "thread_id": "MOCK"},
         {"type": "turn.started"},
@@ -85,7 +89,7 @@ CODEX_DEFECTS = {
     "another model": lambda r: set_after(r["launch"]["argv"], "-m", "gpt-6-luna"),
     "not ephemeral": lambda r: r["launch"]["argv"].remove("--ephemeral"),
     "web search on": lambda r: r["launch"]["argv"].remove('web_search="disabled"'),
-    "lower effort": lambda r: r["launch"]["argv"].__setitem__(-3, "model_reasoning_effort=high"),
+    "lower effort": lambda r: r["launch"]["argv"].__setitem__(r["launch"]["argv"].index("model_reasoning_effort=ultra"), "model_reasoning_effort=high"),
     "a writable sandbox": lambda r: set_after(r["launch"]["argv"], "--sandbox", "workspace-write"),
     "another folder": lambda r: r["launch"].update(cwd="/MOCK/elsewhere"),
     "a command": lambda r: r["events"].insert(3, {"type": "item.completed", "item": {"type": "command_execution"}}),
@@ -170,50 +174,71 @@ def drop_config(argv, value):
         del argv[i]
 
 
-# Each rule the README lists for a launch or a stream, with the problem it must raise by itself.
+# Each rule the README lists for a launch or a stream: a change that breaks it, the problem it must
+# raise, and how many problems that change raises in all.
 CLAUDE_RULES = {
-    "an inline hook setting": (lambda r: set_after(r["launch"]["argv"], "--settings", '{"env":{},"hooks":{"MOCK":[]}}'), "--settings holds 1 key(s) besides env"),
-    "two inline settings": (lambda r: r["launch"]["argv"].extend(["--settings", '{"env":{}}']), "--settings appears more than once"),
-    "an unreadable inline setting": (lambda r: set_after(r["launch"]["argv"], "--settings", "MOCK not json"), "--settings holds"),
-    "an added system prompt": (lambda r: r["launch"]["argv"].extend(["--append-system-prompt", "MOCK"]), "adds to the system prompt"),
-    "a replaced system prompt": (lambda r: r["launch"]["argv"].extend(["--system-prompt", "MOCK"]), "adds to the system prompt"),
-    "a second model flag": (lambda r: r["launch"]["argv"].extend(["--model", "MOCK"]), "--model appears 2 times"),
-    "a second tools flag": (lambda r: r["launch"]["argv"].extend(["--tools", "Bash"]), "--tools appears 2 times"),
-    "a second setting source": (lambda r: r["launch"]["argv"].extend(["--setting-sources", "user"]), "--setting-sources appears 2 times"),
-    "a second permission mode": (lambda r: r["launch"]["argv"].extend(["--permission-mode", "default"]), "--permission-mode appears 2 times"),
-    "allowed tools beyond the three": (lambda r: set_after(r["launch"]["argv"], "--allowedTools", "Read,Bash"), "allowed tools go beyond"),
-    "no strict MCP config": (lambda r: r["launch"]["argv"].remove("--strict-mcp-config"), "--strict-mcp-config missing"),
-    "slash commands on": (lambda r: r["launch"]["argv"].remove("--disable-slash-commands"), "--disable-slash-commands missing"),
-    "a message that names no model": (lambda r: r["events"].insert(-1, {"type": "assistant", "message": {"content": []}}), "no model named"),
+    "an inline hook setting": (lambda r: set_after(r["launch"]["argv"], "--settings", '{"env":{},"hooks":{"MOCK":[]}}'), "--settings holds more than environment variables", 1),
+    "an inline setting whose variable holds an object": (lambda r: set_after(r["launch"]["argv"], "--settings", '{"env":{"MOCK":{"a":1}}}'), "--settings holds more than environment variables", 1),
+    "an unreadable inline setting": (lambda r: set_after(r["launch"]["argv"], "--settings", "MOCK not json"), "--settings holds more than environment variables", 1),
+    "two inline settings": (lambda r: r["launch"]["argv"].extend(["--settings", '{"env":{}}']), "--settings appears 2 times", 1),
+    "an added system prompt": (lambda r: r["launch"]["argv"].extend(["--append-system-prompt", "MOCK"]), "2 argument(s) the audit does not know", 1),
+    "a replaced system prompt": (lambda r: r["launch"]["argv"].extend(["--system-prompt", "MOCK"]), "2 argument(s) the audit does not know", 1),
+    "a system prompt from a file": (lambda r: r["launch"]["argv"].extend(["--append-system-prompt-file=/MOCK/x"]), "2 argument(s) the audit does not know", 1),
+    "a flag the audit has never seen": (lambda r: r["launch"]["argv"].append("--MOCK-new-flag"), "1 argument(s) the audit does not know", 1),
+    "a second model flag": (lambda r: r["launch"]["argv"].extend(["--model", "MOCK"]), "--model appears 2 times", 1),
+    "a second model flag, spelled with =": (lambda r: r["launch"]["argv"].append("--model=MOCK"), "--model appears 2 times", 1),
+    "a second tools flag": (lambda r: r["launch"]["argv"].extend(["--tools", "Bash"]), "--tools appears 2 times", 1),
+    "a second setting source": (lambda r: r["launch"]["argv"].extend(["--setting-sources", "user"]), "--setting-sources appears 2 times", 1),
+    "a second permission mode": (lambda r: r["launch"]["argv"].extend(["--permission-mode", "default"]), "--permission-mode appears 2 times", 1),
+    "allowed tools beyond the three": (lambda r: set_after(r["launch"]["argv"], "--allowedTools", "Read,Bash"), "allowed tools go beyond", 1),
+    "an MCP server in the config": (lambda r: set_after(r["launch"]["argv"], "--mcp-config", '{"mcpServers":{"MOCK":{}}}'), "--mcp-config names a server", 1),
+    "a second folder": (lambda r: set_after(r["launch"]["argv"], "--add-dir", "/MOCK/elsewhere"), "--add-dir names a folder other than the sandbox", 1),
+    "no strict MCP config": (lambda r: r["launch"]["argv"].remove("--strict-mcp-config"), "--strict-mcp-config missing", 1),
+    "slash commands on": (lambda r: r["launch"]["argv"].remove("--disable-slash-commands"), "--disable-slash-commands missing", 1),
+    "a message that names no model": (lambda r: r["events"].insert(-1, {"type": "assistant", "message": {"content": []}}), "no model named", 1),
+    "an assistant event with no message": (lambda r: r["events"].insert(-1, {"type": "assistant"}), "no model named", 1),
 }
+# The eight Codex flags the README lists, written out here so that dropping one from the audit fails a test.
+CODEX_REQUIRED = ("--ephemeral", "--ignore-user-config", "--ignore-rules", "project_doc_max_bytes=0", "features.multi_agent=false",
+                  "features.multi_agent_v2=false", "features.memories=false", 'web_search="disabled"')  # fmt: skip
 CODEX_RULES = {
-    **{f"without {flag}": ((lambda r, flag=flag: drop_config(r["launch"]["argv"], flag)), f"{flag} missing") for flag in audit.CODEX_FLAGS},
-    "a later web search setting": (lambda r: r["launch"]["argv"].extend(["-c", 'web_search="live"']), "configuration key(s) set more than once"),
-    "a later lower effort": (lambda r: r["launch"]["argv"].extend(["-c", "model_reasoning_effort=low"]), "configuration key(s) set more than once"),
-    "a second model": (lambda r: r["launch"]["argv"].extend(["-m", "MOCK"]), "-m appears 2 times"),
-    "a second sandbox": (lambda r: r["launch"]["argv"].extend(["--sandbox", "workspace-write"]), "--sandbox appears 2 times"),
+    **{f"without {flag}": ((lambda r, flag=flag: drop_config(r["launch"]["argv"], flag)), f"{flag} missing", 1) for flag in CODEX_REQUIRED},
+    "a setting given twice": (lambda r: r["launch"]["argv"].extend(["-c", 'web_search="disabled"']), "1 configuration key(s) set more than once", 1),
+    "a later lower effort": (lambda r: r["launch"]["argv"].extend(["-c", "model_reasoning_effort=low"]), "1 configuration key(s) set more than once", 2),
+    "a feature switched on": (lambda r: r["launch"]["argv"].extend(["-c", "features.MOCK=true"]), "1 setting(s) beyond a feature switched off", 1),
+    "a setting the audit has never seen": (lambda r: r["launch"]["argv"].extend(["-c", "MOCK_key=1"]), "1 setting(s) beyond a feature switched off", 1),
+    "the long spelling of a setting": (lambda r: r["launch"]["argv"].extend(["--config", 'web_search="live"']), "2 argument(s) the audit does not know", 1),
+    "a flag the audit has never seen": (lambda r: r["launch"]["argv"].append("--MOCK-new-flag"), "1 argument(s) the audit does not know", 1),
+    "a second model": (lambda r: r["launch"]["argv"].extend(["-m", "MOCK"]), "-m appears 2 times", 1),
+    "a second sandbox": (lambda r: r["launch"]["argv"].extend(["--sandbox", "workspace-write"]), "--sandbox appears 2 times", 1),
+    "a second sandbox, spelled with =": (lambda r: r["launch"]["argv"].append("--sandbox=workspace-write"), "--sandbox appears 2 times", 1),
     "two turns": (lambda r: r["events"].extend([{"type": "turn.started"}, {"type": "item.completed", "item": {"type": "agent_message", "text": "MOCK"}},
-                                                 {"type": "turn.completed"}]), "turns: 2 started, 2 completed"),  # fmt: skip
+                                                 {"type": "turn.completed"}]), "turns: 2 started, 2 completed", 1),  # fmt: skip
+    "a command": (lambda r: r["events"].insert(3, {"type": "item.completed", "item": {"type": "command_execution", "command": "cat /MOCK/lane-home/x"}}),
+                  "1 kind(s) of item beyond messages, reasoning and to-do notes", 1),  # fmt: skip
 }
+
+
+def test_the_audit_requires_every_codex_flag_the_readme_lists():
+    assert set(CODEX_REQUIRED) == set(audit.CODEX_FLAGS)
 
 
 @pytest.mark.parametrize("name", CLAUDE_RULES)
 def test_each_claude_rule_raises_its_own_problem(name):
     rec = claude_record()
-    mutate, problem = CLAUDE_RULES[name]
+    mutate, problem, count = CLAUDE_RULES[name]
     mutate(rec)
     out = run("claude", rec)
-    assert [p for p in out["problems"] if problem in p], out["problems"]
-    assert len(out["problems"]) == 1, out["problems"]
+    assert [p for p in out["problems"] if problem in p] and len(out["problems"]) == count, out["problems"]
 
 
 @pytest.mark.parametrize("name", CODEX_RULES)
 def test_each_codex_rule_raises_its_own_problem(name):
     rec = codex_record()
-    mutate, problem = CODEX_RULES[name]
+    mutate, problem, count = CODEX_RULES[name]
     mutate(rec)
     out = run("codex", rec)
-    assert [p for p in out["problems"] if problem in p] and len(out["problems"]) == 1, out["problems"]
+    assert [p for p in out["problems"] if problem in p] and len(out["problems"]) == count, out["problems"]
 
 
 def test_no_problem_names_a_folder_a_tool_or_a_server():
@@ -225,7 +250,7 @@ def test_no_problem_names_a_folder_a_tool_or_a_server():
             mutate(rec)
             records.append((kind, rec))
     for rules, record, kind in ((CLAUDE_RULES, claude_record, "claude"), (CODEX_RULES, codex_record, "codex")):
-        for mutate, _ in rules.values():
+        for mutate, _, _ in rules.values():
             rec = record()
             mutate(rec)
             records.append((kind, rec))
@@ -238,12 +263,13 @@ def test_no_problem_names_a_folder_a_tool_or_a_server():
     records.append(("claude", rec))
     rec = codex_record()
     rec["launch"].update(cwd="/MOCK/lane-home/work")
+    rec["events"].insert(3, {"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "MOCKserver", "tool": "MOCKtool"}})
     records.append(("codex", rec))
     seen = 0
     for kind, rec in records:
         for problem in run(kind, rec)["problems"]:
             seen += 1
-            for private in ("/MOCK", "lane-home", "mcp__", "MOCKserver", "MOCKtool", "Bash"):
+            for private in ("/MOCK", "lane-home", "mcp__", "mcp_tool_call", "command_execution", "MOCKserver", "MOCKtool", "Bash"):
                 assert private not in problem, problem
     assert seen > len(records) - 2
 

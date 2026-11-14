@@ -5,13 +5,16 @@ for the attempt (the launch record, the provider's event stream, the finalizatio
 prompt as sent) and checks, by family:
 
 - **Opus** (Claude Code): the launch pins `claude-opus-5-5`, offers only the three file-reading tools
-  in plan mode, loads no settings file, memory or MCP server, adds nothing to the system prompt, and
-  gives each checked flag once; its one inline setting holds an environment variable and nothing
-  else; the stream's one init event agrees; every assistant message names that model; the result's
-  usage lists that model only; Subfleet attests it.
+  in plan mode, and loads no settings file, memory or MCP server. It holds no argument beyond the ones
+  `CLAUDE_BARE` and `CLAUDE_VALUED` name, each valued flag once, so nothing adds to the system prompt;
+  its inline setting holds environment variables and nothing else. The stream's one init event agrees;
+  every assistant message names that model; the result's usage lists that model only; Subfleet attests
+  it.
 - **Sol** (Codex): the launch pins `gpt-6.1-sol` at ultra effort in an ephemeral, read-only session
-  with user config, rules, project instructions, web search and multi-agent mode off, and sets no
-  configuration key twice; the stream holds one turn, started and completed. A read-only Codex session
+  with user config, rules, project instructions, web search and multi-agent mode off. It holds no
+  argument beyond the ones `CODEX_BARE` and `CODEX_VALUED` name, sets no configuration key twice, and
+  sets only features switched off and the five values in `CODEX_SETTINGS`. The stream holds one turn,
+  started and completed. A read-only Codex session
   keeps a shell, so the stream check is what fails a context that runs a command. An isolated ephemeral Codex session leaves no served-model record
   that Subfleet can attest, so the pin in the launch record is the evidence; the audit records the
   model the answer names.
@@ -23,8 +26,9 @@ would name a lane's tools, servers or folders. The private records keep the deta
 
 Separately, `prior_flag` marks an answer whose `forecaster.prior_context` says more than "none",
 for the blinded reading the README describes, and `has_canary` reports whether a text carries the
-sandbox's code word. `collect` and `dryrun` give it the whole kept stream, so the word fails a context
-wherever the model wrote it: its answer, an earlier message or its reasoning.
+sandbox's code word. `collect` and `dryrun` give it the whole stream Subfleet keeps, so the word fails
+a context wherever that stream carries it: its answer or an earlier message. Neither provider's stream
+keeps the model's reasoning text as launched, so the check cannot see a word named only there.
 """
 
 from __future__ import annotations
@@ -74,14 +78,53 @@ def _after(argv: list, flag: str):
     return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
 
 
+def _normal(argv: list) -> list[str]:
+    """The launch's arguments with each `--flag=value` split in two, so both spellings read alike."""
+    out: list[str] = []
+    for a in argv:
+        a = str(a)
+        if a.startswith("--") and "=" in a:
+            out += a.split("=", 1)
+        else:
+            out.append(a)
+    return out
+
+
 def _values(argv: list, flag: str) -> list:
     """Every value the launch gives `flag`. A flag given twice has two; the provider would read one."""
     return [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == flag]
 
 
-CLAUDE_ONCE = ("--model", "--tools", "--setting-sources", "--permission-mode")
-CLAUDE_PROMPT_FLAGS = ("--system-prompt", "--system-prompt-file", "--append-system-prompt", "--append-system-prompt-file")
-CODEX_ONCE = ("-m", "--sandbox")
+def _unknown(argv: list, bare: set, valued: set, skip: int) -> tuple[int, list[str]]:
+    """How many arguments after the first `skip` the audit does not know, and each valued flag given
+    more than once. The audit names every argument a correct launch holds, so a new flag, an alias or
+    a second copy of a flag fails the context instead of passing unseen."""
+    unknown, seen, i = 0, [], skip
+    while i < len(argv):
+        if argv[i] in valued:
+            seen.append(argv[i])
+            i += 2
+            continue
+        unknown += argv[i] not in bare
+        i += 1
+    return unknown, sorted({f for f in seen if seen.count(f) > 1 and f != "-c"})
+
+
+# Every argument a correct Claude Code launch holds (Subfleet's isolated mode, read on 2026-11-14).
+CLAUDE_BARE = {"-p", "--verbose", "--safe-mode", "--no-chrome", "--strict-mcp-config", "--disable-slash-commands"}
+CLAUDE_VALUED = {"--model", "--session-id", "--output-format", "--permission-mode", "--tools", "--allowedTools",
+                 "--setting-sources", "--mcp-config", "--add-dir", "--settings"}  # fmt: skip
+# Every argument a correct Codex launch holds, and the settings it may give with `-c`: any feature
+# switched off, and these five values.
+CODEX_BARE = {"--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules"}
+CODEX_VALUED = {"-c", "-m", "--sandbox", "--output-last-message"}
+CODEX_SETTINGS = {
+    "project_doc_max_bytes": "0",
+    "shell_environment_policy.experimental_use_profile": "false",
+    "history.persistence": '"none"',
+    "web_search": '"disabled"',
+    "model_reasoning_effort": CODEX_EFFORT,
+}
 
 
 def _same_folder(a, b) -> bool:
@@ -107,7 +150,7 @@ def sent_prompt(sent: str, registered: str) -> dict:
 def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict:
     problems: list[str] = []
     evs = events(stream)
-    argv = launch.get("argv") or []
+    argv = _normal(launch.get("argv") or [])
     if _after(argv, "--model") != CLAUDE_MODEL:
         problems.append(f"launch: model {_after(argv, '--model')!r}, not {CLAUDE_MODEL}")
     tools = set((_after(argv, "--tools") or "").split(","))
@@ -120,25 +163,34 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
             problems.append(f"launch: {flag} missing")
     if _after(argv, "--permission-mode") != "plan":
         problems.append("launch: not in plan mode")
-    for flag in CLAUDE_ONCE:
-        if len(_values(argv, flag)) != 1:
-            problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
+    unknown, repeated = _unknown(argv, CLAUDE_BARE, CLAUDE_VALUED, 1)
+    if unknown:
+        problems.append(f"launch: {unknown} argument(s) the audit does not know")
+    for flag in repeated:
+        problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
     if not set((_after(argv, "--allowedTools") or "").split(",")) - {""} <= CLAUDE_TOOLS:
         problems.append("launch: the allowed tools go beyond the three file-reading tools")
-    for flag in CLAUDE_PROMPT_FLAGS:
-        if flag in argv:
-            problems.append(f"launch: {flag} adds to the system prompt")
     for payload in _values(argv, "--settings"):
         # Subfleet passes one inline setting, an environment variable for its own watchdog. Anything
         # else (a hook, a model, a permission) would change what the context can do or see.
         try:
-            keys = set(json.loads(payload))
+            setting = json.loads(payload)
         except (ValueError, TypeError):
-            keys = {"unreadable"}
-        if not keys <= {"env"}:
-            problems.append(f"launch: --settings holds {len(keys - {'env'})} key(s) besides env")
-    if len(_values(argv, "--settings")) > 1:
-        problems.append("launch: --settings appears more than once")
+            setting = None
+        env = setting.get("env") if isinstance(setting, dict) else None
+        if not (isinstance(setting, dict) and set(setting) == {"env"} and isinstance(env, dict)
+                and all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())):  # fmt: skip
+            problems.append("launch: --settings holds more than environment variables")
+    for payload in _values(argv, "--mcp-config"):
+        try:
+            servers = json.loads(payload)
+        except (ValueError, TypeError):
+            servers = None
+        if servers != {"mcpServers": {}}:
+            problems.append("launch: --mcp-config names a server")
+    for folder in _values(argv, "--add-dir"):
+        if not _same_folder(folder, sandbox):
+            problems.append("launch: --add-dir names a folder other than the sandbox")
     if not _same_folder(launch.get("cwd"), sandbox):
         problems.append("launch: the working folder is not the sandbox")
     inits = [e for e in evs if e.get("type") == "system" and e.get("subtype") == "init"]
@@ -160,6 +212,8 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
     models, calls = set(), []
     for e in evs:
         msg = e.get("message")
+        if e.get("type") == "assistant" and not isinstance(msg, dict):
+            models.add("no model named")
         if e.get("type") == "assistant" and isinstance(msg, dict):
             models.add(msg.get("model") or "no model named")
             for block in msg.get("content") or []:
@@ -219,7 +273,7 @@ def codex_final(evs: list[dict]) -> tuple[str, str | None]:
 def codex(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict:
     problems: list[str] = []
     evs = events(stream)
-    argv = launch.get("argv") or []
+    argv = _normal(launch.get("argv") or [])
     if _after(argv, "-m") != CODEX_MODEL:
         problems.append(f"launch: model {_after(argv, '-m')!r}, not {CODEX_MODEL}")
     for flag in CODEX_FLAGS:
@@ -229,14 +283,22 @@ def codex(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict
         problems.append(f"launch: effort is not {CODEX_EFFORT}")
     if _after(argv, "--sandbox") != "read-only":
         problems.append("launch: the sandbox is not read-only")
-    for flag in CODEX_ONCE:
-        if len(_values(argv, flag)) != 1:
-            problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
-    keys = [str(v).split("=", 1)[0] for v in _values(argv, "-c")]
-    repeated = sorted({k for k in keys if keys.count(k) > 1})
-    if repeated:
+    unknown, repeated = _unknown(argv, CODEX_BARE, CODEX_VALUED, 2)
+    if argv[:2] != ["codex", "exec"]:
+        unknown += 1
+    if unknown:
+        problems.append(f"launch: {unknown} argument(s) the audit does not know")
+    for flag in repeated:
+        problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
+    settings = [str(v).split("=", 1) for v in _values(argv, "-c")]
+    keys = [kv[0] for kv in settings]
+    if sorted({k for k in keys if keys.count(k) > 1}):
         # A later `-c` for the same key would override the value this audit checked.
-        problems.append(f"launch: {len(repeated)} configuration key(s) set more than once")
+        problems.append(f"launch: {len({k for k in keys if keys.count(k) > 1})} configuration key(s) set more than once")
+    odd = [kv for kv in settings if len(kv) != 2 or not (
+        (kv[0].startswith("features.") and kv[1] == "false") or CODEX_SETTINGS.get(kv[0]) == kv[1])]  # fmt: skip
+    if odd:
+        problems.append(f"launch: {len(odd)} setting(s) beyond a feature switched off and the five the audit names")
     if not _same_folder(launch.get("cwd"), sandbox):
         problems.append("launch: the working folder is not the sandbox")
     if sum(e.get("type") == "thread.started" for e in evs) != 1:
@@ -254,7 +316,7 @@ def codex(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict
     } - CODEX_ITEMS
     other = sorted(set(calls) | started)
     if other:
-        problems.append(f"the context called tools or raised errors: {other}")
+        problems.append(f"the context called tools or raised errors: {len(other)} kind(s) of item beyond messages, reasoning and to-do notes")
     final, why = codex_final(evs)
     if why:
         problems.append(f"stream: {why}")

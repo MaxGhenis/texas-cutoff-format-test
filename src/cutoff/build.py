@@ -276,6 +276,11 @@ def check(b: dict) -> list[str]:
     the rebuilt tables must match byte for byte; without the private Texas repository, each rebuilt
     file's record and each rebuilt prompt's row must match its committed one."""
     problems = []
+    # The audit fails any context whose stream carries the code word, so no prompt may hold it.
+    stem = CANARY_WORD.split("-")[0]
+    carriers = sorted(pid for pid, body in b["prompts"].items() if stem in body.lower())
+    if carriers:
+        problems.append(f"{len(carriers)} prompt(s) hold the sandbox's code word, starting with {carriers[0]}")
     committed = json.loads((paths.DESIGN / "files.json").read_text())
     if not b["skipped"]:
         if (paths.DESIGN / "files.json").read_text() != files_json(b["records"]):

@@ -30,9 +30,9 @@ verdicts read equivalent and, on both primary questions, the unadjusted 90% inte
 grid lies inside the margin; otherwise those jumps beside the alone arm's pooled jumps from this test.
 
 **When it runs.** The registered analysis runs once, when no context of the design stays due, live or
-in review (`design_counts`, from the public tables). `main` labels any earlier run INTERIM. It also
-sets the number of contexts a share it used beside the replicate rule's record and what the rule gives
-on wave 1's answers now (`replicate_record`), so a skipped rule or an edited record shows.
+in review (`design_counts`, from the public tables) and the replicate rule's record exists and still
+agrees with the rule on wave 1's answers (`replicate_record`). `main` labels any other run INTERIM, so
+a skipped rule or an edited record cannot yield a registered result.
 """
 
 from __future__ import annotations
@@ -344,6 +344,12 @@ def write_replicates() -> int:
     if open_:
         print(f"the first batch has not finished: {open_} of {len(wave1)} contexts still running or awaiting a reading")
         return 1
+    # The spreads come from outputs/answers.csv: it has to hold every wave-1 context the store has passed.
+    passed = {r["context"] for r, st in zip(wave1, status) if st == "passed"}
+    in_table = {row["context"] for row in load(wave=1)}
+    if passed != in_table:
+        print(f"outputs/answers.csv holds {len(in_table)} wave-1 contexts and the store has passed {len(passed)}: run `cutoff collect` first")
+        return 1
     r, spread, fallback = rule_now()
     record = {
         "replicates": r,
@@ -359,7 +365,7 @@ def write_replicates() -> int:
         },
     }
     record["registration"] = registration.changes()
-    target.write_text(json.dumps(record, indent=1) + "\n")
+    store.write_atomic(target, json.dumps(record, indent=1) + "\n")
     print("\n".join(registration.describe(record["registration"])))
     print(f"replicates per cell: {r} (design/replicates.json)")
     return 0
@@ -383,15 +389,22 @@ def _standing_lines(result: dict) -> list[str]:
     if d is None or rr is None:
         return []
     lines = []
-    if d["open"]:
-        lines += [f"**INTERIM.** {d['open']} contexts remain open ({d['due']} due, {d['live']} running, {d['review']} "
-                  "awaiting the reading). The registered analysis runs once, when none remains; nothing below is "
-                  "a registered result.", ""]  # fmt: skip
+    if not result.get("complete"):
+        why = []
+        if d["open"]:
+            why.append(f"{d['open']} context{'s remain' if d['open'] != 1 else ' remains'} open ({d['due']} due, {d['live']} "
+                       f"running, {d['review']} awaiting the reading)")  # fmt: skip
+        if rr["recorded"] is None or not rr["agree"]:
+            why.append("the replicate rule's record is missing or disagrees with the rule")
+        lines += [f"**INTERIM.** {'; '.join(why).capitalize()}. The registered analysis runs once, when no context "
+                  "stays open and the rule's record stands; nothing below is a registered result.", ""]  # fmt: skip
     lines.append(f"The design at {rr['used']} contexts a share: {d['passed']} passed, {d['stopped']} stopped, "
                  f"{d['open']} open.")  # fmt: skip
     if rr["recorded"] is None:
         rule = ("The replicate rule has not run: wave 1 has not finished." if not rr["wave_1_finished"] else
                 f"**The replicate rule has no record, though wave 1 has finished; on its answers the rule gives {rr['rule_now']}.**")
+    elif not rr["wave_1_finished"]:
+        rule = f"**The replicate rule's record says {rr['recorded']} (decided {rr['decided_at']}), though wave 1 has not finished.**"
     elif rr["agree"]:
         rule = f"The replicate rule picked {rr['recorded']} on {rr['decided_at']}, and wave 1's answers still give {rr['rule_now']}."
     else:
@@ -549,8 +562,13 @@ def main() -> int:
     strict = analyze(load(max_replicate=r, strict=True), reference)
     result["replicates"] = r
     result["design"] = design_counts(r)
-    result["complete"] = result["design"]["open"] == 0
     result["replicate_rule"] = replicate_record(r)
+    # Complete: no counted context stays open, and the number of contexts a share stands on the rule's
+    # own record, which still agrees with the rule. A missing or edited record leaves the run interim.
+    rule = result["replicate_rule"]
+    result["complete"] = result["design"]["open"] == 0 and rule["recorded"] is not None and rule["agree"]
+    for key in ("replicates", "design", "replicate_rule", "complete"):
+        strict[key] = result[key]
     reg = registration.changes()
     paths.OUTPUTS.mkdir(exist_ok=True)
     (paths.OUTPUTS / "results.json").write_text(json.dumps({"registration": reg, "main": result, "strict": strict}, indent=1) + "\n")

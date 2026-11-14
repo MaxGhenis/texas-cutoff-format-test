@@ -91,12 +91,13 @@ def main(argv=None) -> int:
 
         return dryrun.main(family=a.family, again=a.again)
     if a.cmd == "tick":
-        from . import analysis, collect, dispatch, dryrun
+        from . import analysis, collect, dispatch, dryrun, store
 
         collect.main()
         dryrun.main()
-        if analysis.replicates_due():  # the rule runs as soon as wave 1 has finished: no person picks the moment
-            analysis.write_replicates()
+        with store.lock():  # the rule runs as soon as wave 1 has finished, so no person picks the moment
+            if analysis.replicates_due():
+                analysis.write_replicates()
         return dispatch.main()
     if a.cmd == "registration":
         from . import registration

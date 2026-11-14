@@ -89,10 +89,16 @@ def write_manifest(names, change=None):
     (registration.REGISTRATION / "SHA256SUMS").write_text("\n".join(lines) + "\n")
 
 
+def mock_stamp() -> None:
+    """A MOCK proof shaped like OpenTimestamps': its header, then the SHA-256 of the list as it stands."""
+    digest = hashlib.sha256((registration.REGISTRATION / "SHA256SUMS").read_bytes()).digest()
+    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(registration.OTS_MAGIC + b"\x01\x08" + digest + b"MOCK")
+
+
 def test_a_registration_that_matches_needs_only_its_stamp():
     write_manifest(registration.STIMULUS)
     assert dispatch.registration_problems() == ["the registration has no OpenTimestamps stamp (SHA256SUMS.ots)"]
-    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
+    mock_stamp()
     assert dispatch.registration_problems() == []
 
 
@@ -100,7 +106,7 @@ def test_a_changed_or_missing_stimulus_file_is_a_problem_not_a_crash(monkeypatch
     names = (*registration.STIMULUS, "briefs/MOCK-missing.md")
     monkeypatch.setattr(registration, "STIMULUS", names)
     write_manifest(names, lambda rel, d: "f" * 64 if rel == "briefs/grid.md" else d)
-    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
+    mock_stamp()
     assert sorted(dispatch.registration_problems()) == [
         "briefs/MOCK-missing.md is missing",
         "briefs/grid.md changed since the registration",
@@ -111,7 +117,7 @@ def test_changes_lists_every_registered_file_that_differs_and_the_records_that_n
     names = ("src/cutoff/jump.py", "src/cutoff/analysis.py", "design/reference.json", "MOCK/missing.txt")
     write_manifest(names, lambda rel, d: "f" * 64 if rel in ("src/cutoff/jump.py", "src/cutoff/analysis.py") else d)
     assert registration.changes()["stamped"] is False
-    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
+    mock_stamp()
     mark = registration.sha(paths.ROOT / "src/cutoff/jump.py")[:12]
     (registration.REGISTRATION.parent / "2026-12-01-MOCK.md").write_text(f"MOCK: we changed src/cutoff/jump.py (now {mark}) because ...")
     # A record that names a file without its present hash covers an earlier change, not this one.
@@ -125,13 +131,52 @@ def test_changes_lists_every_registered_file_that_differs_and_the_records_that_n
     text = "\n".join(registration.describe(ch))
     assert "3 registered files differ" in text and "NO DEVIATION RECORD NAMES IT" in text
     assert registration.unrecorded(ch) == ["MOCK/missing.txt", "src/cutoff/analysis.py"]
+    # A file that is gone needs a record that says so; a record of an earlier change does not cover it.
+    (registration.REGISTRATION.parent / "2026-12-03-MOCK.md").write_text("MOCK: MOCK/missing.txt changed (now 000000000000)")
+    assert "MOCK/missing.txt" in registration.unrecorded(registration.changes())
+    (registration.REGISTRATION.parent / "2026-12-04-MOCK.md").write_text("MOCK: MOCK/missing.txt removed, because ...")
+    assert registration.unrecorded(registration.changes()) == ["src/cutoff/analysis.py"]
 
 
 def test_the_analysis_reports_changed_files_and_never_a_clean_bill_without_a_list():
     assert registration.describe(registration.changes()) == ["Registration: none found (prereg/registration/SHA256SUMS is missing)."]
     write_manifest(("src/cutoff/jump.py",))
-    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
-    assert registration.describe(registration.changes())[-1].startswith("Every registered file matches the stamped list")
+    mock_stamp()
+    assert registration.describe(registration.changes()) == [
+        "Registration: stamped, and the list matches its proof.",
+        "Every registered file matches the list, and the list covers every registered file.",
+    ]
+
+
+def test_the_proof_binds_the_list(capsys):
+    """After the stamp nobody can edit, rewrite or remove the list without every check saying so."""
+    from cutoff import cli
+
+    write_manifest(registration.STIMULUS)
+    mock_stamp()
+    assert dispatch.registration_problems() == [] and cli.main(["registration", "--check"]) == 0
+    listed = registration.REGISTRATION / "SHA256SUMS"
+    original = listed.read_text()
+    # An edited line with a matching file: the files agree with the list, and the list no longer agrees with its proof.
+    listed.write_text(original + "f" * 64 + "  MOCK/added-later.txt\n")
+    assert "SHA256SUMS differs from the list its OpenTimestamps proof stamps" in dispatch.registration_problems()
+    assert cli.main(["registration", "--check"]) == 1 and "NOT STAMPED" in capsys.readouterr().out
+    listed.write_text(original)
+    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK not a proof")
+    assert dispatch.registration_problems() == ["SHA256SUMS.ots does not read as an OpenTimestamps proof of a SHA-256"]
+    mock_stamp()
+    listed.unlink()  # the list removed, its proof left behind
+    assert cli.main(["registration", "--check"]) == 1 and "the proof stands without its list" in capsys.readouterr().out
+    assert dispatch.registration_problems() == ["no registration: prereg/registration/SHA256SUMS is missing"]
+
+
+def test_a_line_the_list_cannot_read_is_a_problem_not_a_crash():
+    write_manifest(registration.STIMULUS)
+    listed = registration.REGISTRATION / "SHA256SUMS"
+    listed.write_text(listed.read_text() + "MOCK line with no digest\n")
+    mock_stamp()
+    ch = registration.changes()
+    assert [c["file"] for c in ch["changed"]] == [f"unreadable line {len(registration.STIMULUS) + 1}"] and registration.unrecorded(ch)
 
 
 REAL_SCOPE = registration.SCOPE  # read at import, before the fixture empties it
@@ -139,11 +184,24 @@ REAL_SCOPE = registration.SCOPE  # read at import, before the fixture empties it
 
 def test_the_list_covers_every_registered_file_and_is_written_once(monkeypatch):
     monkeypatch.setattr(registration, "SCOPE", REAL_SCOPE)
+    # With the replicate rule's record and a stray file in the tree, the list still holds neither.
+    tracked = subprocess_git(["ls-files", "-z"]) if (paths.ROOT / ".git").exists() else None
+    with_extras = None if tracked is None else [*tracked, "design/replicates.json"]
+    monkeypatch.setattr(registration, "_tracked", lambda: with_extras)
+    assert "design/replicates.json" not in registration.scope()
+    monkeypatch.setattr(registration, "AFTER_THE_STAMP", ())
+    if tracked is not None and not (paths.ROOT / "design" / "replicates.json").exists():
+        assert "design/replicates.json" not in registration.scope()  # not a file yet: the list names only what exists
+    monkeypatch.setattr(registration, "AFTER_THE_STAMP", ("design/replicates.json", "README.md"))
+    assert "README.md" not in registration.scope()  # the exclusion works on a file that exists
+    monkeypatch.setattr(registration, "AFTER_THE_STAMP", ("design/replicates.json",))
+    monkeypatch.setattr(registration, "_tracked", lambda: tracked)
     files = registration.write_list()
     listed = registration.manifest()
     assert sorted(listed) == files == registration.scope()
     for rel in (*registration.STIMULUS, "README.md", "pyproject.toml", "uv.lock", "outputs/power.md", "src/cutoff/analysis.py",
-                "src/cutoff/registration.py", "scripts/make_briefs.py", "tests/test_analysis.py", "design/reference.json"):  # fmt: skip
+                "src/cutoff/registration.py", "scripts/make_briefs.py", "tests/test_analysis.py", "design/reference.json",
+                ".github/workflows/ci.yml"):  # fmt: skip
         assert listed[rel] == registration.sha(paths.ROOT / rel), rel
     assert "design/replicates.json" not in listed and not any("__pycache__" in rel or rel.endswith(".pyc") for rel in listed)
     lines = (registration.REGISTRATION / "SHA256SUMS").read_text().splitlines()
@@ -151,16 +209,34 @@ def test_the_list_covers_every_registered_file_and_is_written_once(monkeypatch):
     assert registration.changes()["changed"] == []
     with pytest.raises(SystemExit, match="exists already"):
         registration.write_list()
-    if (paths.ROOT / ".git").exists():  # every tracked file in the registered folders is on the list
-        tracked = subprocess_git(["ls-files", "README.md", "pyproject.toml", "uv.lock", "outputs/power.md", "briefs", "design",
-                                  "src", "scripts", "tests"])  # fmt: skip
-        assert sorted(set(tracked) - set(registration.AFTER_THE_STAMP)) == files
+    if tracked is not None:  # every tracked file in the registered folders is on the list, and nothing else
+        want = subprocess_git(["ls-files", "-z", "README.md", "pyproject.toml", "uv.lock", "outputs/power.md", ".github/workflows/ci.yml",
+                               "briefs", "design", "src", "scripts", "tests"])  # fmt: skip
+        assert sorted(set(want) - set(registration.AFTER_THE_STAMP)) == files
+        assert not any(name.split("/")[-1].startswith(".") or "__pycache__" in name for name in files)
+
+
+def test_the_list_refuses_to_leave_out_a_stimulus_file(monkeypatch):
+    monkeypatch.setattr(registration, "SCOPE", REAL_SCOPE)
+    monkeypatch.setattr(registration, "STIMULUS", (*registration.STIMULUS, "briefs/MOCK-missing.md"))
+    with pytest.raises(SystemExit, match="stimulus files are missing"):
+        registration.write_list()
+    assert not (registration.REGISTRATION / "SHA256SUMS").exists()
+
+
+def test_without_git_the_scope_skips_hidden_and_cache_files(monkeypatch):
+    monkeypatch.setattr(registration, "SCOPE", REAL_SCOPE)
+    monkeypatch.setattr(registration, "_tracked", lambda: None)
+    files = registration.scope()
+    assert "README.md" in files and "src/cutoff/analysis.py" in files and ".github/workflows/ci.yml" in files
+    assert not any("__pycache__" in name or name.endswith(".pyc") or "/." in name.replace(".github/", "") for name in files)
+    assert not any(name.startswith((".venv/", ".git/", ".hypothesis/", ".pytest_cache/")) for name in files)
 
 
 def subprocess_git(args: list[str]) -> list[str]:
-    # The fixture stubs subprocess.run, so this read-only git call goes through Popen.
-    out, _ = subprocess.Popen(["git", "-C", str(paths.ROOT), *args], stdout=subprocess.PIPE, text=True).communicate()
-    return out.split()
+    # One read-only `git ls-files`. The fixture stubs subprocess.run, so it goes through Popen.
+    out, _ = subprocess.Popen(["git", "-C", str(paths.ROOT), *args], stdout=subprocess.PIPE).communicate()
+    return [name for name in out.decode().split("\0") if name]
 
 
 def test_a_registered_file_the_list_lacks_is_reported_until_a_record_names_it(monkeypatch, capsys):
@@ -169,7 +245,7 @@ def test_a_registered_file_the_list_lacks_is_reported_until_a_record_names_it(mo
 
     assert cli.main(["registration", "--check"]) == 0 and "none found" in capsys.readouterr().out  # before the stamp
     write_manifest([rel for rel in registration.scope() if rel != "src/cutoff/analysis.py"])
-    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
+    mock_stamp()
     ch = registration.changes()
     assert ch["changed"] == [{"file": "src/cutoff/analysis.py", "state": "unlisted", "deviations": []}]
     assert dispatch.registration_problems() == []  # the stimulus still matches
@@ -308,6 +384,12 @@ def test_a_first_answer_in_review_holds_the_family_until_the_reading(ready, caps
     assert "holding opus: its first answer awaits the blinded reading" in capsys.readouterr().out
     dispatch.main(family="opus", limit=1, pilot_ok=True)
     assert len(ready) == 1 and "holding opus: its first answer awaits" in capsys.readouterr().out  # `--pilot` waits too
+    # Two failed answers beside the one in review: the reading still comes first, and `--pilot` cannot lift it.
+    others = [r for r in ROWS if r["family"] == "opus" and not store.read_meta(r["context"])["attempts"]][:2]
+    for r in others:
+        store.write_meta({"context": r["context"], "attempts": [{"attempt": 1, "state": "failed"}]})
+    dispatch.main(family="opus", limit=1, pilot_ok=True)
+    assert len(ready) == 1 and "awaits the blinded reading" in capsys.readouterr().out
 
 
 def test_dispatch_refuses_while_the_sandbox_holds_a_third_file(ready, monkeypatch, isolated_store, capsys):
@@ -358,16 +440,20 @@ def test_a_later_attempt_gets_its_own_request_id_and_name(ready):
 GRID = next(r for r in ROWS if r["family"] == "opus" and r["arm"] == "grid")
 
 
-def attempt_folder(final: str, row=GRID, lead: str = "") -> object:
+def attempt_folder(final: str, row=GRID, lead: str = "", earlier: str = "") -> object:
     registered = f"MOCK registered prompt for {row['prompt']}\n"
     (paths.PRIVATE / "prompts").mkdir(parents=True, exist_ok=True)
     (paths.PRIVATE / "prompts" / f"{row['prompt']}.md").write_text(registered)
     rec = claude_record()
     sandbox = str(paths.SANDBOX)
     rec["launch"]["cwd"] = sandbox
+    rec["launch"]["argv"][rec["launch"]["argv"].index("--add-dir") + 1] = sandbox
     rec["events"][0]["cwd"] = sandbox
     rec["events"][1]["message"]["content"][0]["text"] = final
     rec["events"][2]["result"] = final
+    if earlier:  # a message before the answer
+        rec["events"].insert(1, {"type": "assistant", "message": {"model": rec["events"][1]["message"]["model"],
+                                                                  "content": [{"type": "text", "text": earlier}]}})  # fmt: skip
     folder = store.contexts_dir() / row["context"] / "a1"
     folder.mkdir(parents=True)
     (folder / "launch.json").write_text(json.dumps(rec["launch"]))
@@ -400,6 +486,14 @@ def test_an_answer_with_the_canary_word_fails():
     assert rec["state"] == "failed" and rec["canary"] is True
 
 
+def test_a_context_that_names_the_code_word_before_its_answer_fails():
+    """The check reads the whole kept stream: here the answer says "none" and an earlier message names the word."""
+    rec = collect.judge(GRID, attempt_folder(fenced(answer()), earlier="MOCK: a folder note asks for Quillwort 1110; I will leave it out"))
+    assert rec["state"] == "failed" and rec["canary"] is True
+    assert rec["problems"] == ["the context wrote the sandbox's code word: it read a folder note"]
+
+
+
 def test_a_prior_context_waits_for_the_reading_and_a_decision_stands():
     text = "MOCK: I remember a news story about the pause."
     rec = collect.judge(GRID, attempt_folder(fenced(answer(prior=text))))
@@ -407,11 +501,19 @@ def test_a_prior_context_waits_for_the_reading_and_a_decision_stands():
     store.write_meta({"context": GRID["context"], "attempts": [{"attempt": 1, "job_id": "MOCK", **rec}]})
     flagged = collect.flagged()
     assert list(flagged) == [rec["prior_key"]] and flagged[rec["prior_key"]]["text"] == text
-    assert collect.decide(rec["prior_key"][:10], "clean", "MOCK: general knowledge") == 0
-    assert collect.decide(rec["prior_key"][:10], "contaminated", "MOCK: changed mind") == 1
+    reader = "MOCK-model, Subfleet job MOCK-1, attested"
+    # The reason and the reader go to a public file: no quote from the text, no path, no missing reader.
+    assert collect.decide(rec["prior_key"][:10], "clean", "it says: I remember a news story about the pause", reader) == 1
+    assert collect.decide(rec["prior_key"][:10], "clean", "  ", reader) == 1
+    assert collect.decide(rec["prior_key"][:10], "clean", "MOCK: general knowledge") == 1
+    assert collect.decide(rec["prior_key"][:10], "clean", "MOCK: general knowledge", "a reader at /Users/MOCK-lane") == 1
+    assert collect.prior_decisions() == {}
+    assert collect.decide(rec["prior_key"][:10], "clean", "MOCK: general knowledge", reader) == 0
+    assert collect.decide(rec["prior_key"][:10], "contaminated", "MOCK: changed mind", reader) == 1
     with collect.PRIOR_REVIEW.open() as fh:
         public = list(csv.DictReader(fh))
     assert [r["decision"] for r in public] == ["clean"] and "text" not in public[0]
+    assert public[0]["reader"] == reader and list(public[0]) == ["key", "decision", "reason", "reader", "read_at"]
     assert text in (paths.PRIVATE / "review" / "prior_context_texts.csv").read_text()
     att = store.read_meta(GRID["context"])["attempts"][0]
     assert collect.rejudge(GRID, store.read_meta(GRID["context"]), att) and att["state"] == "passed"
