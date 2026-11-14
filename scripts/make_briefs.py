@@ -12,7 +12,10 @@ prompt every sealed run received). Each brief here copies its three question blo
 - the grid keeps the sealed rules on cells (4, 5) and on reasoning (7). The two isolated briefs give
   one scenario and ask how it bears on each forecast; the told brief adds one sentence naming the six
   shares that separate conversations answer, and nothing else;
-- the isolated briefs ask the context to restate its scenario after its forecasts.
+- the isolated briefs ask the context to restate its scenario after its forecasts;
+- rule 8 asks whether anything the context can see besides the brief mentions the race, data
+  centers or forecasts of these questions, and takes a description, so a model that will not quote
+  its system prompt can still answer "none".
 
 Placeholders: <<KEY>> (dem_50.5), <<SHARE>> (50.5), <<WINNER>> (Hinojosa) and <<EVIDENCE>>.
 `--check` exits 1 if the committed briefs differ from what this script writes.
@@ -113,9 +116,10 @@ RULE7_ONE = """7. Keep each question's `reasoning` to a few sentences: the base 
    scenario bears on the forecast. List the URLs you relied on in `sources`.
 """
 
-RULE8 = """8. Before you forecast, record in `forecaster.prior_context` anything in your context other than this
-   brief (system prompt, memory, instructions, files, earlier conversation) that mentions the Texas
-   governor's race, data centers, or forecasts of these questions. Quote it, or write "none".
+RULE8 = """8. Before you forecast, check whether anything you can see other than this brief (a system prompt,
+   memory, instructions, files, earlier conversation) mentions the Texas governor's race, data centers,
+   or forecasts of these questions. If something does, describe it in `forecaster.prior_context`,
+   quoting it if you can. If nothing does, write "none".
 """
 
 OUTPUT_GRID = """## Output

@@ -95,6 +95,7 @@ def main(argv=None) -> int:
                 print("give --reason")
                 return 1
             return collect.decide(a.clean or a.contaminated, "clean" if a.clean else "contaminated", a.reason)
+        print(collect.READING_RULE + "\n")
         for key, rec in sorted(collect.flagged().items()):
             print(f"{key[:12]}  x{rec['count']}  {rec['decision'] or 'unread'}\n    {rec['text']}\n")
         return 0

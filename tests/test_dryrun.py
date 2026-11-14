@@ -15,6 +15,12 @@ from cutoff import build, cli, collect, design, dispatch, dryrun, paths, store
 GOOD = '```json\n{"product": 391, "prior_context": "none"}\n```'
 
 
+def meta(family: str, *states, **extra) -> dict:
+    """MOCK dry runs of the family's current launch, one per state."""
+    sig = dryrun.signature(family)
+    return {"family": family, "attempts": [{"attempt": i + 1, "state": s, "signature": sig, **extra} for i, s in enumerate(states)]}
+
+
 def record(family: str, final: str) -> dict:
     rec = claude_record() if family == "opus" else codex_record()
     sandbox = str(paths.SANDBOX)
@@ -86,8 +92,13 @@ def test_a_dry_run_that_reports_prior_context_waits_for_the_blinded_reading(lane
     assert collect.decide(att["prior_key"][:10], decision, "MOCK reason") == 0
     dryrun.main(family="opus", show=shows.get)
     assert dryrun.read_meta("opus")["attempts"][0]["state"] == state
+    assert dryrun.standing("opus") == ("passed" if decision == "clean" else "held")
+    assert len(lanes) == 1  # a contaminated reading holds the model: no second dry run goes by itself
     public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())["opus"]["attempts"][0]
     assert public["prior_key"] == att["prior_key"] and text not in json.dumps(public)
+    if decision == "contaminated":
+        dryrun.main(family="opus", again=True, show=shows.get)
+        assert len(lanes) == 2 and dryrun.standing("opus") == "live"
 
 
 @pytest.mark.parametrize(
@@ -105,7 +116,7 @@ def test_a_dry_run_that_reports_prior_context_waits_for_the_blinded_reading(lane
     ],
 )
 def test_where_a_dry_run_stands(states, standing):
-    dryrun.write_meta({"family": "sol", "attempts": [{"attempt": i + 1, "state": s} for i, s in enumerate(states)]})
+    dryrun.write_meta(meta("sol", *states))
     assert dryrun.standing("sol") == standing
 
 
@@ -141,7 +152,7 @@ def test_the_dry_run_goes_through_the_contexts_launch_with_its_own_prompt(lanes)
 
 
 def test_a_held_dry_run_waits_for_a_person(lanes, capsys):
-    dryrun.write_meta({"family": "opus", "attempts": [{"attempt": 1, "state": "failed"}, {"attempt": 2, "state": "failed"}]})
+    dryrun.write_meta(meta("opus", "failed", "failed"))
     dryrun.main(family="opus", show=lambda job_id: None)
     assert lanes == [] and "holding opus" in capsys.readouterr().out
     dryrun.main(family="opus", again=True, show=lambda job_id: None)
@@ -218,3 +229,40 @@ def test_tick_collects_then_sends_dry_runs_then_dispatches(monkeypatch):
     monkeypatch.setattr(dispatch, "main", lambda: order.append("dispatch") or 0)
     assert cli.main(["tick"]) == 0
     assert order == ["collect", "dryrun", "dispatch"]
+
+
+def test_a_pass_counts_only_for_the_launch_and_prompt_it_tried(lanes, monkeypatch):
+    dryrun.write_meta(meta("sol", "passed"))
+    assert dryrun.passed("sol")
+    for target, name, value in (
+        (dryrun, "PROMPT", dryrun.PROMPT + "MOCK change\n"),
+        (design, "PIN", {**design.PIN, "sol": "MOCK-model"}),
+        (build, "CANARY_TEXT", build.CANARY_TEXT + "MOCK change\n"),
+    ):
+        with monkeypatch.context() as m:
+            m.setattr(target, name, value)
+            assert not dryrun.passed("sol") and dryrun.standing("sol") == "due", name
+    assert dryrun.passed("sol")
+
+
+def test_dry_runs_of_an_earlier_launch_stop_counting_and_a_new_one_goes(lanes):
+    old = {"attempt": 1, "state": "submitted", "job_id": "MOCK-old", "signature": "MOCK-earlier-launch"}
+    unsigned = {"attempt": 2, "state": "failed", "job_id": "MOCK-unsigned"}
+    dryrun.write_meta({"family": "opus", "attempts": [old, unsigned]})
+    asked = []
+    dryrun.main(family="opus", show=lambda job_id: asked.append(job_id))
+    atts = dryrun.read_meta("opus")["attempts"]
+    assert [a["state"] for a in atts] == ["superseded", "failed", "submitted"]
+    assert atts[2]["signature"] == dryrun.signature("opus") and "MOCK-old" not in asked
+    assert len(lanes) == 1 and dryrun.standing("opus") == "live"
+
+
+def test_the_dry_run_asks_whether_not_what_so_a_model_can_answer_none_without_quoting():
+    assert "check whether anything you can see other than this prompt" in dryrun.PROMPT
+    assert 'If\n   nothing does, write "none".' in dryrun.PROMPT
+
+
+def test_flags_prints_the_readers_rule_above_the_texts(capsys):
+    assert cli.main(["flags"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(collect.READING_RULE) and "declines to describe" in out

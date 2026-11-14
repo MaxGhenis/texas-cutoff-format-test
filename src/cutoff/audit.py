@@ -12,8 +12,11 @@ prompt as sent) and checks, by family:
   one turn, started and completed. An isolated ephemeral Codex session leaves no served-model record
   that Subfleet can attest, so the pin in the launch record is the evidence; the audit records the
   model the answer names.
-- **Both:** the context called no tool; the prompt it received ends with its registered prompt, byte
+- **Both:** the context called no tool; the prompt it received matches its registered prompt, byte
   for byte; and its working folder is the sandbox.
+
+Each problem the audit reports goes to the public tables, so a problem gives a count where a list
+would name a lane's tools, servers or folders. The private records keep the detail.
 
 Separately, `prior_flag` marks an answer whose `forecaster.prior_context` says more than "none",
 for the blinded reading the README describes, and `has_canary` reports whether the answer carries the
@@ -95,7 +98,7 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
         problems.append(f"launch: model {_after(argv, '--model')!r}, not {CLAUDE_MODEL}")
     tools = set((_after(argv, "--tools") or "").split(","))
     if not tools <= CLAUDE_TOOLS:
-        problems.append(f"launch: tools {sorted(tools)} go beyond {sorted(CLAUDE_TOOLS)}")
+        problems.append(f"launch: {len(tools - CLAUDE_TOOLS)} tool(s) beyond the three file-reading tools")
     if _after(argv, "--setting-sources") != "":
         problems.append("launch: setting sources are not empty")
     for flag in ("--safe-mode", "--strict-mcp-config", "--disable-slash-commands"):
@@ -104,7 +107,7 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
     if _after(argv, "--permission-mode") != "plan":
         problems.append("launch: not in plan mode")
     if not _same_folder(launch.get("cwd"), sandbox):
-        problems.append(f"launch: working folder {launch.get('cwd')!r} is not the sandbox")
+        problems.append("launch: the working folder is not the sandbox")
     inits = [e for e in evs if e.get("type") == "system" and e.get("subtype") == "init"]
     if len(inits) != 1:
         problems.append(f"stream: {len(inits)} init events")
@@ -113,13 +116,14 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
         if init.get("model") != CLAUDE_MODEL:
             problems.append(f"stream: init names model {init.get('model')!r}")
         if not set(init.get("tools") or []) <= CLAUDE_TOOLS:
-            problems.append(f"stream: init lists tools {init.get('tools')}")
+            extra = set(init.get("tools") or []) - CLAUDE_TOOLS
+            problems.append(f"stream: init lists {len(extra)} tool(s) beyond the three file-reading tools")
         if init.get("mcp_servers"):
             servers = init.get("mcp_servers")
             count = len(servers) if isinstance(servers, (list, dict)) else 1
             problems.append(f"stream: init lists {count} MCP server(s)")  # names stay in the private stream
         if not _same_folder(init.get("cwd"), sandbox):
-            problems.append(f"stream: init working folder {init.get('cwd')!r} is not the sandbox")
+            problems.append("stream: init's working folder is not the sandbox")
     models, calls = set(), []
     for e in evs:
         msg = e.get("message")
@@ -194,7 +198,7 @@ def codex(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict
     if _after(argv, "--sandbox") != "read-only":
         problems.append("launch: the sandbox is not read-only")
     if not _same_folder(launch.get("cwd"), sandbox):
-        problems.append(f"launch: working folder {launch.get('cwd')!r} is not the sandbox")
+        problems.append("launch: the working folder is not the sandbox")
     if sum(e.get("type") == "thread.started" for e in evs) != 1:
         problems.append("stream: not exactly one thread")
     calls = [

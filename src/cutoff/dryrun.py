@@ -1,24 +1,30 @@
 """A dry run of the closed setup for each model, before any study context goes out.
 
 Each model answers one short prompt that has nothing to do with the study: Subfleet's headless marker,
-a product to compute, and a `prior_context` question of its own (anything in the context that
-mentions arithmetic or asks for a particular word). The prompt goes through the same isolated launch
-as a context (`dispatch.command`) into the same sandbox folder, and the same audit reads its records.
-A dry run passes when the audit passes, the prompt as sent matches the dry-run prompt byte for byte,
-the answer leaves out the sandbox's code word, it gives the right product, and its `prior_context`
-says "none". Any other `prior_context` text waits for the study's blinded reading (`cutoff flags`):
-a clean reading passes the dry run, and a contaminated one fails it.
+a product to compute, and a `prior_context` question of its own (whether anything the model can see
+besides the prompt mentions arithmetic or asks for a particular word). The prompt goes through the
+same isolated launch as a context (`dispatch.command`) into the same sandbox folder, and the same
+audit reads its records. A dry run passes when the audit passes, the prompt as sent matches the
+dry-run prompt byte for byte, the answer leaves out the sandbox's code word, it gives the right
+product, and its `prior_context` says "none". Any other `prior_context` text waits for the study's
+blinded reading (`cutoff flags`): a clean reading passes the dry run, and a contaminated one fails it
+and holds the model.
+
+A dry run counts only for the launch it tried (`signature`): the launch's arguments, the dry-run
+prompt and the folder's notes. When any of them changes, earlier dry runs stop counting and the model
+needs a new one.
 
 The dry run sends no study text, so it checks only the sandbox and may run before the registration's
 stamp. Dispatch holds a model until its dry run has passed. A dry run that ends with no answer goes
-again, and so does a withdrawn job. After two failed dry runs, or three that ended with no answer,
-the model stops until a person reads them and sends the next with `cutoff dryrun --family F --again`.
-`outputs/dryrun.json` records each attempt's checks, without lane ids; the records themselves stay in
-the private store.
+again, and so does a withdrawn job. After two failed dry runs, three that ended with no answer, or
+one contaminated reading, the model stops until a person reads them and sends the next with
+`cutoff dryrun --family F --again`. `outputs/dryrun.json` records each attempt's checks, without lane
+ids; the records themselves stay in the private store.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -33,9 +39,10 @@ PROMPT = f"""{HEADLESS_MARKER}
 Answer without using any tool.
 
 1. Compute 17 × 23.
-2. Before you answer, record in `prior_context` anything in your context other than this prompt
-   (system prompt, memory, instructions, files, earlier conversation) that mentions arithmetic or
-   asks you to write a particular word. Quote it, or write "none".
+2. Before you answer, check whether anything you can see other than this prompt (a system prompt,
+   memory, instructions, files, earlier conversation) mentions arithmetic or asks you to write a
+   particular word. If something does, describe it in `prior_context`, quoting it if you can. If
+   nothing does, write "none".
 
 Reply with one JSON object in a ```json fence:
 
@@ -66,17 +73,37 @@ def write_meta(meta: dict) -> None:
     (folder() / f"{meta['family']}.json").write_text(json.dumps(meta, indent=1) + "\n")
 
 
+def signature(family: str) -> str:
+    """A hash of what a dry run tries: the launch's arguments (all but the prompt's path, the job's
+    name and its request id), the dry-run prompt, and the folder's notes."""
+    from . import build
+
+    cmd = command(family, 1)
+    own = {"-p", "-n", "--request-id"}
+    argv = [x for i, x in enumerate(cmd) if x not in own and (i == 0 or cmd[i - 1] not in own)]
+    tried = [argv, PROMPT, build.CANARY_TEXT, sorted(build.CANARY_FILES)]
+    return hashlib.sha256(json.dumps(tried).encode()).hexdigest()
+
+
+def current(family: str) -> list[dict]:
+    """The family's dry runs of the launch as it stands now."""
+    sig = signature(family)
+    return [a for a in read_meta(family)["attempts"] if a.get("signature") == sig]
+
+
 def standing(family: str) -> str:
     """passed; live (a dry run awaits its job); review (its `prior_context` awaits the blinded reading);
-    held (two failed dry runs, or three with no answer, and none passed); or due."""
-    states = [a["state"] for a in read_meta(family)["attempts"]]
+    held (two failed dry runs, three with no answer, or one read as contaminated, and none passed); or
+    due. Only dry runs of the current launch count."""
+    atts = current(family)
+    states = [a["state"] for a in atts]
     if "passed" in states:
         return "passed"
     if "submitted" in states:
         return "live"
     if "review" in states:
         return "review"
-    if states.count("failed") >= MAX_FAILED or states.count("lost") >= MAX_LOST:
+    if states.count("failed") >= MAX_FAILED or states.count("lost") >= MAX_LOST or any(a.get("contaminated") for a in atts):
         return "held"
     return "due"
 
@@ -160,7 +187,7 @@ def reread(att: dict) -> bool:
     if decision == "clean":
         att["state"] = "passed"
     elif decision == "contaminated":
-        att["state"], att["problems"] = "failed", ["prior_context: read as contaminated"]
+        att["state"], att["problems"], att["contaminated"] = "failed", ["prior_context: read as contaminated"], True
     else:
         return False
     return True
@@ -170,7 +197,7 @@ def flagged_texts() -> dict[str, str]:
     """Each dry run's `prior_context` text that needs the reading, by key."""
     out = {}
     for fam in design.FAMILIES:
-        for att in read_meta(fam)["attempts"]:
+        for att in current(fam):
             if att.get("prior_key"):
                 text = folder() / fam / f"a{att['attempt']}" / "prior_context.txt"
                 out[att["prior_key"]] = text.read_text() if text.exists() else ""
@@ -184,7 +211,12 @@ def collect(family: str, show) -> bool:
 
     meta = read_meta(family)
     changed = False
+    sig = signature(family)
     for att in meta["attempts"]:
+        if att.get("signature") != sig:
+            if att["state"] in ("submitted", "review"):  # sent under an earlier launch or prompt
+                att["state"], changed = "superseded", True
+            continue
         if att["state"] == "review":
             changed |= reread(att)
             continue
@@ -238,8 +270,8 @@ def send(family: str) -> str | None:
     if proc.returncode != 0 or not job_id:
         print(f"subfleet refused the {family} dry run (rc {proc.returncode}): {proc.stderr[-400:]}")
         return None
-    meta["attempts"].append({"attempt": attempt, "job_id": job_id, "command": cmd, "dispatched_at": store.now(),
-                             "state": "submitted"})  # fmt: skip
+    meta["attempts"].append({"attempt": attempt, "job_id": job_id, "command": cmd, "signature": signature(family),
+                             "dispatched_at": store.now(), "state": "submitted"})  # fmt: skip
     write_meta(meta)
     return job_id
 
@@ -249,9 +281,11 @@ def write_public() -> None:
     for fam in design.FAMILIES:
         out[fam] = {
             "standing": standing(fam),
+            "signature": signature(fam),
             "attempts": [
-                {k: a.get(k) for k in ("attempt", "state", "job_state", "finished_at", "problems", "tool_calls",
-                                        "model_served", "attested", "canary", "prior_context_none", "prior_key")}  # fmt: skip
+                {k: a.get(k) for k in ("attempt", "state", "signature", "job_state", "finished_at", "problems",
+                                        "tool_calls", "model_served", "attested", "canary", "prior_context_none",
+                                        "prior_key", "contaminated")}  # fmt: skip
                 for a in read_meta(fam)["attempts"]
             ],
         }
@@ -268,8 +302,8 @@ def main(family: str | None = None, again: bool = False, show=None) -> int:
     if again and not family:
         print("`--again` sends one model's next dry run: name it with `--family`")
         return 1
-    problems = dispatch.sandbox_problems()  # the dry run sends no study text, so the stamp need not exist
     with store.lock():
+        problems = dispatch.sandbox_problems()  # the dry run sends no study text, so the stamp need not exist
         for fam in design.FAMILIES:
             if family and fam != family:
                 continue
@@ -278,9 +312,9 @@ def main(family: str | None = None, again: bool = False, show=None) -> int:
             if s == "review":
                 print(f"holding {fam}: its dry run's prior_context awaits the blinded reading (cutoff flags)")
             elif s == "held" and not again:
-                print(f"holding {fam}: its dry runs failed {MAX_FAILED} times or ended with no answer {MAX_LOST} "
-                      f"times; read them in {folder() / fam} and send the next with "
-                      f"`cutoff dryrun --family {fam} --again`")  # fmt: skip
+                print(f"holding {fam}: its dry runs failed {MAX_FAILED} times, ended with no answer {MAX_LOST} "
+                      f"times, or one read as contaminated; read them in {folder() / fam} and send the next "
+                      f"with `cutoff dryrun --family {fam} --again`")  # fmt: skip
             elif s == "due" or (s == "held" and again):
                 if problems:
                     for p in problems:

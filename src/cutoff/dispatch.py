@@ -14,6 +14,7 @@ Dry run: a family sends nothing until its dry run has passed (`dryrun.py`).
 
 Pilot: until a family's first context passes, it runs one context at a time, and two failed answers
 or three runs with no answer, with none passed, hold it until a person sends the next by hand (`pilot`).
+It also waits while its first answer awaits the blinded reading.
 
 Waves: wave 1 (the first batch) goes first. A family's wave 2 starts when its wave 1 has finished.
 Wave 3 (replicates 4 to 6) starts only after `design/replicates.json` exists, and only up to the
@@ -42,7 +43,9 @@ def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
     setup (say, a lane that reads the folder's note and writes the code word) costs one attempt, not
     a wave. After two failed answers, or three runs that ended with no answer, with none passed, it
     stops until a person reads them and sends the next one by hand with `cutoff dispatch --pilot`.
-    A withdrawn job never ran and counts toward neither."""
+    A withdrawn job never ran and counts toward neither. While an answer awaits the blinded reading
+    and none has passed, the family also waits, so a fault that shows only in `prior_context` costs
+    one context."""
     states = [a["state"] for r in rows if r["family"] == fam for a in metas[r["context"]]["attempts"]]
     if "passed" in states:
         return MAX_IN_FLIGHT, None
@@ -51,6 +54,8 @@ def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
         return 0, (f"{fam}: {failed} failed answers and {lost} runs with no answer, and none passed; read them "
                    "(cutoff status, the attempt folders) and send the next one by hand with "
                    f"`cutoff dispatch --family {fam} --limit 1 --pilot`")
+    if "review" in states:
+        return 0, f"{fam}: its first answer awaits the blinded reading (cutoff flags), and none has passed"
     return 1, None
 
 

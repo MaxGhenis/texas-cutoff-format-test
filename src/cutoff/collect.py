@@ -6,12 +6,13 @@ the finalization record and the prompt as sent into PRIVATE/contexts/<context>/a
 (`audit.py`) and the answer check (`response.py`), and sets the attempt's state (`store.py`).
 
 An answer whose `prior_context` says more than a bare "none", "nothing" or "n/a" waits in state
-`review` for the blinded reading: `cutoff flags` prints each distinct text with its key and nothing
-else, the reader files a decision in `review/prior_context.csv` (`cutoff flags --clean KEY` or
-`--contaminated KEY`), and the next `collect` passes or fails the attempt. Each model's dry run
-(`dryrun.py`) puts its own `prior_context` text, if any, through the same reading. A decision, once
-filed, stands: `decide` refuses to change it. The public file holds each key, decision and reason;
-the texts, which can quote the evidence, go to PRIVATE/review/prior_context_texts.csv.
+`review` for the blinded reading: `cutoff flags` prints the reader's rule (`READING_RULE`), then each
+distinct text with its key and nothing else. The reader files a decision in
+`review/prior_context.csv` (`cutoff flags --clean KEY` or `--contaminated KEY`), and the next
+`collect` passes or fails the attempt. Each model's dry run (`dryrun.py`) puts its own
+`prior_context` text, if any, through the same reading. A decision, once filed, stands: `decide`
+refuses to change it. The public file holds each key, decision and reason; the texts, which can quote
+the evidence, go to PRIVATE/review/prior_context_texts.csv.
 
 `outputs/answers.csv` holds every passed context's numbers, one row per question and cell, and
 `outputs/attempts.csv` every attempt's state. Both are rebuilt in full from the private store, so
@@ -34,6 +35,14 @@ from .response import QUANTILE_KEYS, ResponseError, keys_for, read_answer
 FINISHED = {"succeeded", "failed", "cancelled", "canceled", "lost", "killed", "expired", "abandoned"}
 KEPT = ("launch.json", "finalization.json", "exit.json", "prompt.sent.md")
 PRIOR_REVIEW = paths.ROOT / "review" / "prior_context.csv"
+# The reader's rule, as the README registers it. `cutoff flags` prints it above the texts.
+READING_RULE = (
+    "File `contaminated` when the text shows that the model saw something besides its prompt that bears on "
+    "its answer: a note or file in its folder, an instruction from a memory or settings file, or anything "
+    "about the race, data centers or these forecasts (in a dry run, anything about arithmetic or a word to "
+    "write). Otherwise file `clean`. A model that restates its prompt, or declines to describe its "
+    "provider's system prompt, shows nothing of that kind."
+)
 ANSWER_COLUMNS = [
     "context", "file", "source_family", "family", "arm", "cell", "replicate", "wave", "attempt", "question",
     "key", "value", *QUANTILE_KEYS, "repaired", "prior_read", "canary", "job_id",

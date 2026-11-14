@@ -215,6 +215,8 @@ def test_two_failures_with_no_pass_hold_the_family_until_sent_by_hand(ready, cap
         ({0: ("lost", "lost"), 1: ("lost",)}, True),  # three lost, across contexts
         ({0: ("failed",), 1: ("failed",)}, True),
         ({0: ("lost",) * 5, 1: ("passed",)}, False),  # a pass ends the pilot
+        ({0: ("review",)}, True),  # a first answer that awaits the reading
+        ({0: ("review",), 1: ("passed",)}, False),
     ],
 )
 def test_the_pilot_holds_a_family_after_two_failed_answers_or_three_runs_with_no_answer(spread, held):
@@ -238,6 +240,19 @@ def test_a_setup_that_loses_every_run_costs_three_runs_not_a_wave(ready, capsys)
                 store.write_meta(m)
     assert len(ready) == dispatch.PILOT_LOST
     assert "holding opus: 0 failed answers and 3 runs with no answer" in capsys.readouterr().out
+
+
+def test_a_first_answer_in_review_holds_the_family_until_the_reading(ready, capsys):
+    """Round 2's counterexample: every opus answer lands in review, tick after tick."""
+    for _ in range(15):
+        dispatch.main(family="opus")
+        for r in ROWS:
+            m = store.read_meta(r["context"])
+            if m["attempts"] and m["attempts"][-1]["state"] == "submitted":
+                m["attempts"][-1]["state"] = "review"
+                store.write_meta(m)
+    assert len(ready) == 1
+    assert "holding opus: its first answer awaits the blinded reading" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("pilot_ok", [False, True])

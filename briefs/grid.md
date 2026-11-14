@@ -22,9 +22,10 @@ base rates and from the facts in this brief, and give your own numbers.
    95th percentile. Quantiles must not decrease and must lie within the stated bounds.
 7. Keep each question's `reasoning` to a few sentences: the base rate, the main mechanism, and what
    moves the forecast across cells. List the URLs you relied on in `sources`.
-8. Before you forecast, record in `forecaster.prior_context` anything in your context other than this
-   brief (system prompt, memory, instructions, files, earlier conversation) that mentions the Texas
-   governor's race, data centers, or forecasts of these questions. Quote it, or write "none".
+8. Before you forecast, check whether anything you can see other than this brief (a system prompt,
+   memory, instructions, files, earlier conversation) mentions the Texas governor's race, data centers,
+   or forecasts of these questions. If something does, describe it in `forecaster.prior_context`,
+   quoting it if you can. If nothing does, write "none".
 
 ## Output
 
