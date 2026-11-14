@@ -39,9 +39,11 @@ PRIOR_REVIEW = paths.ROOT / "review" / "prior_context.csv"
 READING_RULE = (
     "File `contaminated` when the text shows that the model saw something besides its prompt that bears on "
     "its answer: a note or file in its folder, an instruction from a memory or settings file, or anything "
-    "about the race, data centers or these forecasts (in a dry run, anything about arithmetic or a word to "
-    "write). Otherwise file `clean`. A model that restates its prompt, or declines to describe its "
-    "provider's system prompt, shows nothing of that kind."
+    "about the race, data centers or forecasts of the study's questions (in a dry run, anything about "
+    "arithmetic or a word to write). Otherwise file `clean`. A model that restates its prompt, or declines to describe its "
+    "provider's system prompt, shows nothing of that kind. A study prompt ends with an evidence file: web "
+    "search results and page text about the race and data centers. A text that describes or quotes that "
+    "file restates the prompt."
 )
 ANSWER_COLUMNS = [
     "context", "file", "source_family", "family", "arm", "cell", "replicate", "wave", "attempt", "question",
@@ -91,14 +93,17 @@ def judge(row: dict, folder: Path) -> dict:
         problems.append("the prompt as sent differs from the registered prompt")
     final = check["final"]
     (folder / "final.md").write_text(final)
-    if audit.has_canary(final, build.CANARY_WORD):
-        problems.append("the answer carries the sandbox's canary word: the context read a project file")
+    # The whole kept stream, not just the answer: a context that read a folder note can name the word
+    # in its reasoning or an earlier message and leave it out of its answer. No prompt holds the word.
+    canary = audit.has_canary(stream, build.CANARY_WORD) or audit.has_canary(final, build.CANARY_WORD)
+    if canary:
+        problems.append("the context wrote the sandbox's code word: it read a folder note")
     record = {
         "tool_calls": check["tool_calls"],
         "model_served": check["model_served"],
         "attested": check["attested"],
         "lead_sha256": sent["lead_sha256"],
-        "canary": audit.has_canary(final, build.CANARY_WORD),
+        "canary": canary,
         "repairs": 0,
         "prior_key": None,
     }
@@ -269,8 +274,9 @@ def flagged() -> dict[str, dict]:
     return out
 
 
-def decide(key_prefix: str, decision: str, reason: str) -> int:
-    """File a reading decision for the one flagged text whose key starts with `key_prefix`."""
+def decide(key_prefix: str, decision: str, reason: str, reader: str = "") -> int:
+    """File a reading decision for the one flagged text whose key starts with `key_prefix`. `reader`
+    names who read it (the model, and its Subfleet job when a lane read it), for the public record."""
     matches = [k for k in flagged() if k.startswith(key_prefix)]
     if len(matches) != 1:
         print(f"{len(matches)} flagged texts match {key_prefix!r}")
@@ -284,9 +290,9 @@ def decide(key_prefix: str, decision: str, reason: str) -> int:
     if PRIOR_REVIEW.exists():
         with PRIOR_REVIEW.open() as f:
             rows = list(csv.DictReader(f))
-    rows.append({"key": key, "decision": decision, "reason": reason, "read_at": store.now()})
+    rows.append({"key": key, "decision": decision, "reason": reason, "reader": reader, "read_at": store.now()})
     PRIOR_REVIEW.parent.mkdir(exist_ok=True)
-    store.write_atomic(PRIOR_REVIEW, _csv(["key", "decision", "reason", "read_at"], rows))
+    store.write_atomic(PRIOR_REVIEW, _csv(["key", "decision", "reason", "reader", "read_at"], rows))
     texts = paths.PRIVATE / "review" / "prior_context_texts.csv"
     trows = []
     if texts.exists():

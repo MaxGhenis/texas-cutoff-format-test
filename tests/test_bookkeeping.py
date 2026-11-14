@@ -17,6 +17,7 @@ from cutoff import build, collect, design, dispatch, paths, registration, store
 from cutoff.jump import KEYS, QUESTIONS
 
 ROWS = store.design_rows()
+REAL_SANDBOX_PROBLEMS = dispatch.sandbox_problems  # read at import, before any fixture stubs it
 
 
 def meta(*states):
@@ -111,7 +112,10 @@ def test_changes_lists_every_registered_file_that_differs_and_the_records_that_n
     write_manifest(names, lambda rel, d: "f" * 64 if rel in ("src/cutoff/jump.py", "src/cutoff/analysis.py") else d)
     assert registration.changes()["stamped"] is False
     (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
-    (registration.REGISTRATION.parent / "2026-12-01-MOCK.md").write_text("MOCK: we changed src/cutoff/jump.py because ...")
+    mark = registration.sha(paths.ROOT / "src/cutoff/jump.py")[:12]
+    (registration.REGISTRATION.parent / "2026-12-01-MOCK.md").write_text(f"MOCK: we changed src/cutoff/jump.py (now {mark}) because ...")
+    # A record that names a file without its present hash covers an earlier change, not this one.
+    (registration.REGISTRATION.parent / "2026-11-20-MOCK.md").write_text("MOCK: src/cutoff/analysis.py (now 000000000000) changed")
     ch = registration.changes()
     assert ch["stamped"] and [c["file"] for c in ch["changed"]] == ["MOCK/missing.txt", "src/cutoff/analysis.py", "src/cutoff/jump.py"]
     by_file = {c["file"]: c for c in ch["changed"]}
@@ -120,13 +124,60 @@ def test_changes_lists_every_registered_file_that_differs_and_the_records_that_n
     assert by_file["src/cutoff/analysis.py"]["deviations"] == []
     text = "\n".join(registration.describe(ch))
     assert "3 registered files differ" in text and "NO DEVIATION RECORD NAMES IT" in text
+    assert registration.unrecorded(ch) == ["MOCK/missing.txt", "src/cutoff/analysis.py"]
 
 
 def test_the_analysis_reports_changed_files_and_never_a_clean_bill_without_a_list():
     assert registration.describe(registration.changes()) == ["Registration: none found (prereg/registration/SHA256SUMS is missing)."]
     write_manifest(("src/cutoff/jump.py",))
     (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
-    assert registration.describe(registration.changes())[-1] == "Every registered file matches the stamped list."
+    assert registration.describe(registration.changes())[-1].startswith("Every registered file matches the stamped list")
+
+
+REAL_SCOPE = registration.SCOPE  # read at import, before the fixture empties it
+
+
+def test_the_list_covers_every_registered_file_and_is_written_once(monkeypatch):
+    monkeypatch.setattr(registration, "SCOPE", REAL_SCOPE)
+    files = registration.write_list()
+    listed = registration.manifest()
+    assert sorted(listed) == files == registration.scope()
+    for rel in (*registration.STIMULUS, "README.md", "pyproject.toml", "uv.lock", "outputs/power.md", "src/cutoff/analysis.py",
+                "src/cutoff/registration.py", "scripts/make_briefs.py", "tests/test_analysis.py", "design/reference.json"):  # fmt: skip
+        assert listed[rel] == registration.sha(paths.ROOT / rel), rel
+    assert "design/replicates.json" not in listed and not any("__pycache__" in rel or rel.endswith(".pyc") for rel in listed)
+    lines = (registration.REGISTRATION / "SHA256SUMS").read_text().splitlines()
+    assert all(len(line.split("  ", 1)[0]) == 64 for line in lines)  # `shasum -a 256 -c` reads this form
+    assert registration.changes()["changed"] == []
+    with pytest.raises(SystemExit, match="exists already"):
+        registration.write_list()
+    if (paths.ROOT / ".git").exists():  # every tracked file in the registered folders is on the list
+        tracked = subprocess_git(["ls-files", "README.md", "pyproject.toml", "uv.lock", "outputs/power.md", "briefs", "design",
+                                  "src", "scripts", "tests"])  # fmt: skip
+        assert sorted(set(tracked) - set(registration.AFTER_THE_STAMP)) == files
+
+
+def subprocess_git(args: list[str]) -> list[str]:
+    # The fixture stubs subprocess.run, so this read-only git call goes through Popen.
+    out, _ = subprocess.Popen(["git", "-C", str(paths.ROOT), *args], stdout=subprocess.PIPE, text=True).communicate()
+    return out.split()
+
+
+def test_a_registered_file_the_list_lacks_is_reported_until_a_record_names_it(monkeypatch, capsys):
+    monkeypatch.setattr(registration, "SCOPE", REAL_SCOPE)
+    from cutoff import cli
+
+    assert cli.main(["registration", "--check"]) == 0 and "none found" in capsys.readouterr().out  # before the stamp
+    write_manifest([rel for rel in registration.scope() if rel != "src/cutoff/analysis.py"])
+    (registration.REGISTRATION / "SHA256SUMS.ots").write_bytes(b"MOCK")
+    ch = registration.changes()
+    assert ch["changed"] == [{"file": "src/cutoff/analysis.py", "state": "unlisted", "deviations": []}]
+    assert dispatch.registration_problems() == []  # the stimulus still matches
+    assert cli.main(["registration", "--check"]) == 1 and "NO DEVIATION RECORD NAMES IT" in capsys.readouterr().out
+    mark = registration.sha(paths.ROOT / "src/cutoff/analysis.py")[:12]
+    (registration.REGISTRATION.parent / "2026-12-02-MOCK.md").write_text(f"MOCK: src/cutoff/analysis.py {mark} joined the list late")
+    assert cli.main(["registration", "--check"]) == 0
+    assert cli.main(["registration"]) == 0
 
 
 # ------------------------------------------------------------------------------------------- dispatch
@@ -224,9 +275,11 @@ def test_the_pilot_holds_a_family_after_two_failed_answers_or_three_runs_with_no
     metas = {r["context"]: meta() for r in ROWS}
     for i, states in spread.items():
         metas[rows[i]["context"]] = meta(*states)
-    cap, why = dispatch.pilot(ROWS, metas, "opus")
+    cap, why, by_hand = dispatch.pilot(ROWS, metas, "opus")
     passed = any("passed" in states for states in spread.values())
     assert (cap, why is not None) == ((0, True) if held else (dispatch.MAX_IN_FLIGHT if passed else 1, False))
+    waits_for_reading = held and any("review" in states for states in spread.values())
+    assert by_hand == (held and not waits_for_reading)  # the reading lifts that wait; `--pilot` cannot
 
 
 def test_a_setup_that_loses_every_run_costs_three_runs_not_a_wave(ready, capsys):
@@ -253,6 +306,24 @@ def test_a_first_answer_in_review_holds_the_family_until_the_reading(ready, caps
                 store.write_meta(m)
     assert len(ready) == 1
     assert "holding opus: its first answer awaits the blinded reading" in capsys.readouterr().out
+    dispatch.main(family="opus", limit=1, pilot_ok=True)
+    assert len(ready) == 1 and "holding opus: its first answer awaits" in capsys.readouterr().out  # `--pilot` waits too
+
+
+def test_dispatch_refuses_while_the_sandbox_holds_a_third_file(ready, monkeypatch, isolated_store, capsys):
+    # The `ready` fixture stubs the sandbox check; put the real one back. The store's own patches stay,
+    # so this writes to the test's temporary sandbox and never to the real one.
+    monkeypatch.setattr(dispatch, "sandbox_problems", REAL_SANDBOX_PROBLEMS)
+    assert str(paths.SANDBOX).startswith(str(isolated_store))
+    paths.SANDBOX.mkdir(parents=True, exist_ok=True)
+    for name in build.CANARY_FILES:
+        (paths.SANDBOX / name).write_text(build.CANARY_TEXT)
+    (paths.SANDBOX / "MOCK-third.md").write_text("MOCK")
+    assert dispatch.main() == 1 and "refusing to dispatch: the sandbox holds" in capsys.readouterr().out
+    assert ready == []
+    (paths.SANDBOX / "MOCK-third.md").unlink()
+    pass_one("opus")
+    assert dispatch.main(family="opus", limit=1) == 0 and len(ready) == 1  # the same call goes once the folder is clean
 
 
 @pytest.mark.parametrize("pilot_ok", [False, True])

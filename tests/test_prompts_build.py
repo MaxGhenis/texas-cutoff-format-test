@@ -163,3 +163,33 @@ def test_reference_check_allows_last_bit_rounding_and_nothing_more():
     other = json.loads(json.dumps(ref))
     other["runs"][label]["family"] = "MOCK"
     assert build.first_difference(ref, other) == f"$.runs.{label}.family: {ref['runs'][label]['family']!r} against 'MOCK'"
+
+
+def test_the_committed_briefs_are_what_the_script_writes_from_the_sealed_brief(capsys):
+    import importlib.util
+
+    if not (paths.PUBLIC_TEXAS / "prompts" / "forecaster.md").exists():
+        pytest.skip("the public Texas repository is not on this machine")
+    spec = importlib.util.spec_from_file_location("make_briefs", paths.ROOT / "scripts" / "make_briefs.py")
+    make_briefs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_briefs)
+    assert make_briefs.main(["--check"]) == 0, capsys.readouterr().out
+    sealed = make_briefs.sealed_brief()
+    for arm in ("grid", "alone", "told"):
+        text = make_briefs.build(arm, sealed)
+        assert text == (paths.ROOT / "briefs" / f"{arm}.md").read_text()
+        # The docstring's list of changes names the told brief's two sentences, and they sit only there.
+        assert ("Each conversation sees only its own." in text) == (arm == "told")
+
+
+def test_no_brief_or_prompt_holds_the_code_word():
+    """The audit fails any context whose stream carries the word, so no prompt may hold it."""
+    stem = build.CANARY_WORD.split("-")[0]
+    from cutoff import dryrun
+
+    for arm in ("grid", "alone", "told"):
+        assert stem not in (paths.ROOT / "briefs" / f"{arm}.md").read_text().lower()
+    assert stem not in dryrun.PROMPT.lower()
+    private = paths.PRIVATE / "prompts"
+    for path in sorted(private.glob("*.md")) if private.is_dir() else []:
+        assert stem not in path.read_text().lower(), path.name

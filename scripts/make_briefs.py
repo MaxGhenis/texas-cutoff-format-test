@@ -6,16 +6,25 @@ The sealed brief is prompts/forecaster.md in the public Texas repository (SHA-25
 prompt every sealed run received). Each brief here copies its three question blocks and its whole
 "Context" section word for word, and changes only what a closed context with an evidence file needs:
 
-- the opening and rule 1 say there are no tools and point to the evidence file;
-- the rules drop what the dropped questions needed (the vote-share and turnout forms, baselines);
+- the title says "data centers" where the sealed brief says "data center construction", since the
+  construction questions are gone;
+- the opening drops the sentence on pooling and logging, puts the as-of date in the past, and says
+  there is no web access and that the evidence file holds what an earlier session's web tools returned;
+- rule 1 says to work from the brief and its evidence file and to use no tool;
+- rule 2 asks a context that knows of any vote count to say so, where the sealed brief said "come
+  across" one;
+- the rules drop what the dropped questions needed (the vote-share and turnout forms, baselines, and
+  units other than percent and probabilities);
 - the Output section drops `research_summary`, since no context researches;
-- the grid keeps the sealed rules on cells (4, 5) and on reasoning (7). The two isolated briefs give
-  one scenario and ask how it bears on each forecast; the told brief adds one sentence naming the six
-  shares that separate conversations answer, and nothing else;
-- the isolated briefs ask the context to restate its scenario after its forecasts;
-- rule 8 asks whether anything the context can see besides the brief mentions the race, data
-  centers or forecasts of these questions, and takes a description, so a model that will not quote
-  its system prompt can still answer "none".
+- the paragraph under "The questions" names the two groups of questions that remain;
+- the grid keeps the sealed rules on cells (4, 5) and on reasoning (7). The alone and told briefs give
+  one scenario and ask how it bears on each forecast; the told brief's rule 5 adds two sentences, which
+  name the six shares, say that separate conversations answer the same questions and say that each
+  sees only its own, and adds nothing else;
+- the alone and told briefs ask the context to restate its scenario after its forecasts;
+- rule 8 (the sealed rule 10) asks the context to check what is already in its context besides the
+  brief and its evidence file, and takes a description where the sealed rule asked for a quote, so a
+  model that will not quote its system prompt can still answer "none".
 
 Placeholders: <<KEY>> (dem_50.5), <<SHARE>> (50.5), <<WINNER>> (Hinojosa) and <<EVIDENCE>>.
 `--check` exits 1 if the committed briefs differ from what this script writes.
@@ -116,10 +125,10 @@ RULE7_ONE = """7. Keep each question's `reasoning` to a few sentences: the base 
    scenario bears on the forecast. List the URLs you relied on in `sources`.
 """
 
-RULE8 = """8. Before you forecast, check whether anything you can see other than this brief (a system prompt,
-   memory, instructions, files, earlier conversation) mentions the Texas governor's race, data centers,
-   or forecasts of these questions. If something does, describe it in `forecaster.prior_context`,
-   quoting it if you can. If nothing does, write "none".
+RULE8 = """8. Before you forecast, check what is already in your context other than this brief and its evidence
+   file: a system prompt, memory, instructions or earlier conversation. If any of it mentions the Texas
+   governor's race, data centers, or forecasts of these questions, describe it in
+   `forecaster.prior_context`, quoting it if you can. If none of it does, write "none".
 """
 
 OUTPUT_GRID = """## Output

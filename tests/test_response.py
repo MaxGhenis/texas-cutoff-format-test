@@ -81,7 +81,7 @@ def test_both_names_in_the_winner_fail():
         (lambda a: a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_44.0"].update({"p": "40%"}), "probability"),
         (lambda a: a["nodes"]["senate_dem_share"]["forecasts"]["dem_44.0"].update({"p05": 60.0}), "decrease"),
         (lambda a: a["nodes"]["senate_dem_share"]["forecasts"]["dem_44.0"].update({"p95": 75.0}), "lie in"),
-        (lambda a: a["nodes"].update({"extra_question": {"forecasts": {}}}), "unexpected questions"),
+        (lambda a: a["nodes"].update({"extra_question": {"forecasts": {}}}), "unexpected question"),
     ],
 )
 def test_each_defect_fails_with_its_problem_named(change, problem):
@@ -214,7 +214,7 @@ def test_a_stray_key_without_an_object_goes_and_is_recorded():
 def test_a_stray_key_that_holds_an_object_is_not_repaired():
     a = answer()
     a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_60.0"] = {"p": 0.5}
-    with pytest.raises(R.ResponseError, match="unexpected forecast keys"):
+    with pytest.raises(R.ResponseError, match="1 unexpected forecast key"):
         R.read_answer(fenced(a), KEYS)
 
 
@@ -223,3 +223,33 @@ def test_keys_for_each_arm():
     for c, k in zip(CELLS, KEYS):
         assert R.keys_for("alone", k) == ((k,), c)
         assert R.keys_for("told", k) == ((k,), c)
+
+
+@pytest.mark.parametrize("share, ok", [(49.5, True), (49.54, True), (49.46, True), (49.56, False), (49.44, False), (0.495, True), (0.4956, False)])
+def test_the_restated_share_must_sit_within_a_twentieth_of_a_point(share, ok):
+    key = ("dem_49.5",)
+    a = answer(key, cell=49.5)
+    a["scenario"]["hinojosa_share"] = share
+    if ok:
+        assert R.parse(a, key, 49.5)
+    else:
+        with pytest.raises(R.ResponseError, match="is not the assigned 49.5"):
+            R.parse(a, key, 49.5)
+
+
+def test_no_problem_echoes_what_the_model_wrote():
+    """Problems go to a public table, and a model's text can quote its evidence file."""
+    news = "MOCK news sentence that an evidence file could hold, quoted in place of a number. " * 3
+    key = ("dem_53.0",)
+    a = answer(key, cell=53.0)
+    a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_53.0"]["p"] = news
+    a["nodes"]["senate_dem_share"]["forecasts"]["dem_53.0"]["p50"] = news
+    a["nodes"]["ercot_pause_lifted"]["forecasts"][news] = {"p": 0.5}
+    a["nodes"][news] = {"forecasts": {}}
+    a["scenario"]["hinojosa_share"] = news
+    a["scenario"]["winner"] = news
+    with pytest.raises(R.ResponseError) as exc:
+        R.parse(a, key, 53.0)
+    problems = exc.value.problems
+    assert len(problems) >= 6 and all("MOCK news" not in p for p in problems), problems
+    assert any("a string of" in p for p in problems)

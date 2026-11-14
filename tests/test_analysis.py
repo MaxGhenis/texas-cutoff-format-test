@@ -248,18 +248,99 @@ def test_load_keeps_the_registered_replicates_and_strict_drops_repaired_and_read
     assert len(A.load(path, strict=True)) == len(rows) - 2
 
 
-def test_main_writes_results_from_the_store(monkeypatch):
-    paths.OUTPUTS.mkdir(parents=True)
-    rows = mock_rows(sd=1.0)
+def public_tables(monkeypatch, rows, states=None):
+    """MOCK public tables in a temporary design/ and outputs/: the answers, the real contexts table, a
+    MOCK reference, and one attempt row per context of `rows` (state `passed`, or `states[context]`)."""
+    import json
+    import shutil
+
+    paths.OUTPUTS.mkdir(parents=True, exist_ok=True)
     with (paths.OUTPUTS / "answers.csv").open("w") as fh:
         w = csv.DictWriter(fh, fieldnames=collect.ANSWER_COLUMNS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+    contexts = paths.DESIGN / "contexts.csv"
+    monkeypatch.setattr(paths, "DESIGN", paths.OUTPUTS)
+    shutil.copyfile(contexts, paths.OUTPUTS / "contexts.csv")
+    (paths.OUTPUTS / "reference.json").write_text(json.dumps(mock_reference()))
+    if states is not None:
+        with (paths.OUTPUTS / "attempts.csv").open("w") as fh:
+            w = csv.DictWriter(fh, fieldnames=collect.ATTEMPT_COLUMNS, extrasaction="ignore")
+            w.writeheader()
+            for cid in sorted({r["context"] for r in rows}):
+                w.writerow({"context": cid, "attempt": 1, "state": states.get(cid, "passed")})
+
+
+def test_an_analysis_with_contexts_still_open_says_interim(monkeypatch):
     import json
 
-    ref = paths.OUTPUTS / "reference.json"
-    ref.write_text(json.dumps(mock_reference()))
+    rows = mock_rows(sd=1.0)
+    public_tables(monkeypatch, rows)  # no attempts table: every context reads as due
+    assert A.main() == 0
+    out = json.loads((paths.OUTPUTS / "results.json").read_text())["main"]
+    assert out["complete"] is False and out["design"]["due"] == 1248 and out["design"]["open"] == 1248
+    text = (paths.OUTPUTS / "results.md").read_text()
+    assert "**INTERIM.** 1248 contexts remain open" in text and "nothing below is a registered result" in text
+    assert "The replicate rule has not run: wave 1 has not finished." in text
+
+
+def test_a_complete_analysis_counts_the_design_from_the_public_tables_and_checks_the_replicate_rule(monkeypatch):
+    import json
+
+    rows = mock_rows(sd=1.0)
+    stopped = next(r["context"] for r in rows if r["wave"] == 2)
+    public_tables(monkeypatch, rows, {stopped: "failed"})
+    with (paths.OUTPUTS / "attempts.csv").open("a") as fh:  # three failed answers stop a context
+        fh.write(f"{stopped},2,,failed,,,,,,,,,,\n{stopped},3,,failed,,,,,,,,,,\n")
+    assert A.main() == 0
+    out = json.loads((paths.OUTPUTS / "results.json").read_text())["main"]
+    assert out["complete"] is True and out["design"] == {"passed": 1247, "stopped": 1, "due": 0, "live": 0, "review": 0, "open": 0}
+    rule = A.rule_now()[0]
+    assert out["replicate_rule"] == {"used": 3, "recorded": None, "decided_at": None, "wave_1_finished": True, "rule_now": rule, "agree": False}
+    text = (paths.OUTPUTS / "results.md").read_text()
+    assert "INTERIM" not in text and "The design at 3 contexts a share: 1247 passed, 1 stopped, 0 open." in text
+    assert f"**The replicate rule has no record, though wave 1 has finished; on its answers the rule gives {rule}.**" in text
+    # A record that agrees with the rule reads plainly; an edited one shows.
+    (paths.OUTPUTS / "replicates.json").write_text(json.dumps({"replicates": rule, "decided_at": "MOCK-time"}))
+    assert A.replicate_record(rule)["agree"] is True
+    (paths.OUTPUTS / "replicates.json").write_text(json.dumps({"replicates": 3 if rule != 3 else 4, "decided_at": "MOCK-time"}))
+    rec = A.replicate_record(3)
+    assert rec["agree"] is False and "but wave 1's answers give" in "\n".join(A._standing_lines({"design": out["design"], "replicate_rule": rec}))
+
+
+def test_the_rule_picks_the_most_replicates_when_wave_1_holds_too_few_answers(monkeypatch):
+    rows = [r for r in mock_rows(sd=1.0) if not (r["family"] == "sol" and r["arm"] == "grid" and r["wave"] == 1)]
+    public_tables(monkeypatch, rows)
+    r, spread, why = A.rule_now()
+    assert (r, spread) == (design.R_MAX, None) and "too few answers" in why
+
+
+def test_the_replicate_rule_falls_due_when_wave_1_has_run_and_nothing_of_it_stays_open(monkeypatch):
+    import json
+
+    from cutoff import store
+
+    wave1 = [r["context"] for r in store.design_rows() if r["wave"] == 1]
+    put = lambda cid, *states: store.write_meta({"context": cid, "attempts": [{"attempt": i + 1, "state": x} for i, x in enumerate(states)]})  # noqa: E731
+    assert A.replicates_due() is False  # nothing has run
+    for cid in wave1[:-1]:
+        put(cid, "passed")
+    assert A.replicates_due() is False  # one context still due
+    put(wave1[-1], "review")
+    assert A.replicates_due() is False  # an answer awaits its reading
+    put(wave1[-1], "failed", "failed", "failed")
+    assert A.replicates_due() is True  # stopped counts as finished
     monkeypatch.setattr(paths, "DESIGN", paths.OUTPUTS)
+    paths.OUTPUTS.mkdir(parents=True, exist_ok=True)
+    (paths.OUTPUTS / "replicates.json").write_text(json.dumps({"replicates": 3}))
+    assert A.replicates_due() is False  # the rule runs once
+
+
+def test_main_writes_results_from_the_store(monkeypatch):
+    import json
+
+    rows = mock_rows(sd=1.0)
+    public_tables(monkeypatch, rows, {})
     assert A.main() == 0
     out = json.loads((paths.OUTPUTS / "results.json").read_text())
     assert out["main"]["pooled"][ERCOT]["differences"]["alone-grid"]["verdict"] == "equivalent"

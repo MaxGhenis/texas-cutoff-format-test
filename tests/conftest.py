@@ -17,9 +17,12 @@ def isolated_store(tmp_path_factory, monkeypatch):
         monkeypatch.setattr(paths, name, root / name.lower())
     monkeypatch.setattr(collect, "PRIOR_REVIEW", root / "review" / "prior_context.csv")
     monkeypatch.setattr(registration, "REGISTRATION", root / "prereg" / "registration")
+    monkeypatch.setattr(registration, "SCOPE", ())  # a test that checks the list's coverage sets its own
 
     def refuse(*args, **kwargs):
         raise AssertionError(f"a test tried to run a command: {args[0] if args else kwargs}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
-    return root
+    yield root
+    # A test that undid these patches (`monkeypatch.undo()`) would have worked on the real folders.
+    assert str(paths.SANDBOX).startswith(str(root)) and str(paths.PRIVATE).startswith(str(root)), "a test left the temporary store"

@@ -6,11 +6,13 @@
     cutoff collect              copy finished contexts into PRIVATE/contexts/, parse and audit them
     cutoff dryrun [--family F [--again]]
                                 each model's dry run of the closed setup, which dispatch waits for
-    cutoff tick                 collect, the dry runs, then dispatch: what the scheduled job runs
-    cutoff flags [--clean KEY | --contaminated KEY] [--reason TEXT]
+    cutoff tick                 collect, the dry runs, the replicate rule once wave 1 has finished, then dispatch
+    cutoff flags [--clean KEY | --contaminated KEY] [--reason TEXT] [--reader WHO]
                                 the blinded reading of prior_context texts (collect.py)
     cutoff replicates           apply the registered replicate rule to wave 1 (writes design/replicates.json)
-    cutoff analyze              the registered analysis (outputs/)
+    cutoff analyze              the registered analysis (outputs/); INTERIM while any context stays open
+    cutoff registration [--write | --check]
+                                the stamped list: write it once, or report every change since the stamp
     cutoff power                the planning table (outputs/power.md)
 """
 
@@ -37,10 +39,14 @@ def main(argv=None) -> int:
     dr.add_argument("--family", choices=("opus", "sol"), default=None)
     dr.add_argument("--again", action="store_true", help="send one more dry run for the held family that --family names")
     sub.add_parser("tick")
+    rg = sub.add_parser("registration")
+    rg.add_argument("--write", action="store_true", help="write prereg/registration/SHA256SUMS over the registered files, once")
+    rg.add_argument("--check", action="store_true", help="exit 1 if a changed file has no deviation record")
     fl = sub.add_parser("flags")
     fl.add_argument("--clean", default=None)
     fl.add_argument("--contaminated", default=None)
     fl.add_argument("--reason", default="")
+    fl.add_argument("--reader", default="", help="who read the text: the model, and its Subfleet job if a lane read it")
     sub.add_parser("replicates")
     sub.add_parser("analyze")
     sub.add_parser("power")
@@ -61,8 +67,11 @@ def main(argv=None) -> int:
         if b_["skipped"]:
             print("refusing to write a partial build; run with --check to verify what is here")
             return 1
-        for line in build.write(b_):
-            print(line)
+        from . import store
+
+        with store.lock():  # a tick checks the sandbox under the same lock
+            for line in build.write(b_):
+                print(line)
         return 0
     if a.cmd == "status":
         from . import collect
@@ -82,11 +91,23 @@ def main(argv=None) -> int:
 
         return dryrun.main(family=a.family, again=a.again)
     if a.cmd == "tick":
-        from . import collect, dispatch, dryrun
+        from . import analysis, collect, dispatch, dryrun
 
         collect.main()
         dryrun.main()
+        if analysis.replicates_due():  # the rule runs as soon as wave 1 has finished: no person picks the moment
+            analysis.write_replicates()
         return dispatch.main()
+    if a.cmd == "registration":
+        from . import registration
+
+        if a.write:
+            files = registration.write_list()
+            print(f"wrote prereg/registration/SHA256SUMS over {len(files)} files; stamp it with OpenTimestamps")
+            return 0
+        ch = registration.changes()
+        print("\n".join(registration.describe(ch)))
+        return 1 if a.check and registration.unrecorded(ch) else 0
     if a.cmd == "flags":
         from . import collect
 
@@ -94,7 +115,7 @@ def main(argv=None) -> int:
             if not a.reason:
                 print("give --reason")
                 return 1
-            return collect.decide(a.clean or a.contaminated, "clean" if a.clean else "contaminated", a.reason)
+            return collect.decide(a.clean or a.contaminated, "clean" if a.clean else "contaminated", a.reason, a.reader)
         print(collect.READING_RULE + "\n")
         for key, rec in sorted(collect.flagged().items()):
             print(f"{key[:12]}  x{rec['count']}  {rec['decision'] or 'unread'}\n    {rec['text']}\n")

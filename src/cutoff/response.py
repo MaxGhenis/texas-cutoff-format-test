@@ -73,7 +73,7 @@ def parse(obj, keys: tuple[str, ...], cell: float | None = None) -> Answer:
     out.forecaster = obj.get("forecaster") if isinstance(obj.get("forecaster"), dict) else {}
     prior = out.forecaster.get("prior_context")
     if not isinstance(prior, str) or not prior.strip():
-        problems.append("forecaster.prior_context: required; quote anything beyond the brief, or write 'none'")
+        problems.append("forecaster.prior_context: required; describe anything beyond the brief, or write 'none'")
     nodes = obj["nodes"]
     for q in QUESTIONS:
         item = nodes.get(q)
@@ -92,12 +92,12 @@ def parse(obj, keys: tuple[str, ...], cell: float | None = None) -> Answer:
                 vals[key] = checked
         extra = set(forecasts) - set(keys)
         if extra:
-            problems.append(f"{q}: unexpected forecast keys {sorted(extra)}")
+            problems.append(f"{q}: {len(extra)} unexpected forecast key(s)")
         out.values[q] = vals
         out.reasoning[q] = item.get("reasoning") if isinstance(item.get("reasoning"), str) else ""
     unknown = set(nodes) - set(QUESTIONS)
     if unknown:
-        problems.append(f"unexpected questions {sorted(unknown)}")
+        problems.append(f"{len(unknown)} unexpected question(s)")
     if cell is not None:
         out.scenario = obj.get("scenario") if isinstance(obj.get("scenario"), dict) else None
         problems += _scenario_problems(out.scenario, cell)
@@ -106,17 +106,30 @@ def parse(obj, keys: tuple[str, ...], cell: float | None = None) -> Answer:
     return out
 
 
+def _shown(value) -> str:
+    """How a problem shows a value the model wrote: a number as written, anything else by its kind and
+    size. Problems go to the public tables, and a model's text can quote its evidence file."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return f"a string of {len(value)} characters"
+    if isinstance(value, (list, dict)):
+        return f"a {type(value).__name__} of {len(value)} items"
+    return type(value).__name__
+
+
 def _check_value(question: str, v: dict, where: str, problems: list[str]):
     if question in BINARY:
         p = _number(v.get("p"))
         if p is None or not 0.0 <= p <= 1.0:
-            problems.append(f"{where}: p must be a probability from 0 to 1, got {v.get('p')!r}")
+            problems.append(f"{where}: p must be a probability from 0 to 1, got {_shown(v.get('p'))}")
             return None
         return p
     if question in QUANTITY:
         xs = [_number(v.get(k)) for k in QUANTILE_KEYS]
         if any(x is None for x in xs):
-            problems.append(f"{where}: quantiles {list(QUANTILE_KEYS)} must all be numbers, got {v}")
+            missing = [k for k, x in zip(QUANTILE_KEYS, xs) if x is None]
+            problems.append(f"{where}: quantiles {list(QUANTILE_KEYS)} must all be numbers; {missing} are not")
             return None
         lo, hi = SENATE_BOUNDS
         if any(b < a for a, b in zip(xs, xs[1:])):
@@ -139,12 +152,12 @@ def _scenario_problems(scenario: dict | None, cell: float) -> list[str]:
     if share is not None and 0.0 < share < 1.0:
         share *= 100.0  # a share written as a fraction
     if share is None or abs(share - cell) > SHARE_TOLERANCE:
-        problems.append(f"scenario.hinojosa_share: {scenario.get('hinojosa_share')!r} is not the assigned {cell:g}")
+        problems.append(f"scenario.hinojosa_share: {_shown(scenario.get('hinojosa_share'))} is not the assigned {cell:g}")
     winner = scenario.get("winner")
     text = winner.lower() if isinstance(winner, str) else ""
     right, wrong = expected_winner(cell), expected_winner(100.0 - cell)
     if right not in text or wrong in text:
-        problems.append(f"scenario.winner: {winner!r} does not name {right.title()} alone")
+        problems.append(f"scenario.winner: {_shown(winner)} does not name {right.title()} alone")
     return problems
 
 

@@ -36,8 +36,8 @@ PILOT_FAILURES = 2
 PILOT_LOST = 3
 
 
-def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
-    """How many of a family's contexts may run at once, and why none may.
+def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None, bool]:
+    """How many of a family's contexts may run at once, why none may, and whether `--pilot` lifts that.
 
     Until a family's first context passes, it runs one context at a time, so a fault in the closed
     setup (say, a lane that reads the folder's note and writes the code word) costs one attempt, not
@@ -45,18 +45,18 @@ def pilot(rows: list[dict], metas: dict, fam: str) -> tuple[int, str | None]:
     stops until a person reads them and sends the next one by hand with `cutoff dispatch --pilot`.
     A withdrawn job never ran and counts toward neither. While an answer awaits the blinded reading
     and none has passed, the family also waits, so a fault that shows only in `prior_context` costs
-    one context."""
+    one context. The reading releases that wait; `--pilot` does not."""
     states = [a["state"] for r in rows if r["family"] == fam for a in metas[r["context"]]["attempts"]]
     if "passed" in states:
-        return MAX_IN_FLIGHT, None
+        return MAX_IN_FLIGHT, None, False
+    if "review" in states:
+        return 0, f"{fam}: its first answer awaits the blinded reading (cutoff flags), and none has passed", False
     failed, lost = states.count("failed"), states.count("lost")
     if failed >= PILOT_FAILURES or lost >= PILOT_LOST:
         return 0, (f"{fam}: {failed} failed answers and {lost} runs with no answer, and none passed; read them "
                    "(cutoff status, the attempt folders) and send the next one by hand with "
-                   f"`cutoff dispatch --family {fam} --limit 1 --pilot`")
-    if "review" in states:
-        return 0, f"{fam}: its first answer awaits the blinded reading (cutoff flags), and none has passed"
-    return 1, None
+                   f"`cutoff dispatch --family {fam} --limit 1 --pilot`"), True
+    return 1, None, False
 
 
 def registration_problems() -> list[str]:
@@ -123,12 +123,12 @@ def sandbox_problems() -> list[str]:
 
 def main(wave: int | None = None, family: str | None = None, limit: int | None = None, dry_run: bool = False,
          pilot_ok: bool = False) -> int:
-    problems = registration_problems() + sandbox_problems()
-    if problems and not dry_run:
-        for p in problems:
-            print("refusing to dispatch:", p)
-        return 1
     with store.lock():
+        problems = registration_problems() + sandbox_problems()
+        if problems and not dry_run:
+            for p in problems:
+                print("refusing to dispatch:", p)
+            return 1
         rows = store.design_rows()
         metas = {r["context"]: store.read_meta(r["context"]) for r in rows}
         todo = eligible(rows, metas)
@@ -153,10 +153,11 @@ def main(wave: int | None = None, family: str | None = None, limit: int | None =
             if not dryrun.passed(fam):
                 print(f"holding {fam}: its dry run has not passed (cutoff dryrun)")
                 continue
-            cap, why = pilot(rows, metas, fam)
-            if why and not pilot_ok:
+            cap, why, by_hand = pilot(rows, metas, fam)
+            lift = pilot_ok and (by_hand or not why)
+            if why and not lift:
                 print("holding", why)
-            room = (max(cap, 1) if pilot_ok else cap) - live
+            room = (max(cap, 1) if lift else cap) - live
             for r in todo:
                 if room <= 0 or (limit is not None and sent >= limit):
                     break

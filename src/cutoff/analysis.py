@@ -25,9 +25,14 @@ primary question drops out of that question's pooled differences; with no family
 has no pooled result. Talarico's share, which takes no verdict, pools both families whatever its
 bridge shows.
 
-**What the paper's abstract reports** (`abstract_rule`): the grid's jump alone if both primary
-verdicts read equivalent and, on both primary questions, the 90% interval of told minus grid lies
-inside the margin; otherwise the grid's jump and the alone arm's jump side by side.
+**What a paper's abstract reports** (`abstract_rule`): the research runs' jumps alone if both primary
+verdicts read equivalent and, on both primary questions, the unadjusted 90% interval of told minus
+grid lies inside the margin; otherwise those jumps beside the alone arm's pooled jumps from this test.
+
+**When it runs.** The registered analysis runs once, when no context of the design stays due, live or
+in review (`design_counts`, from the public tables). `main` labels any earlier run INTERIM. It also
+sets the number of contexts a share it used beside the replicate rule's record and what the rule gives
+on wave 1's answers now (`replicate_record`), so a skipped rule or an edited record shows.
 """
 
 from __future__ import annotations
@@ -209,12 +214,13 @@ def cross(js: dict, q: str, arm: str = "grid") -> dict:
 
 
 def abstract_rule(pooled: dict) -> dict:
-    """Whether the paper's abstract gives the grid's jump alone or beside the alone arm's.
+    """Whether a paper's abstract gives the research runs' jumps alone or beside the alone arm's pooled
+    jumps from this test.
 
-    The grid's jump stands alone only if both primary verdicts read equivalent, after Holm's
-    adjustment, and on both primary questions the 90% interval of told minus grid falls inside the
-    margin. So the abstract never drops the alone arm's number while a registered verdict reads
-    unresolved or different."""
+    The research runs' jumps stand alone only if both primary verdicts read equivalent, after Holm's
+    adjustment, and on both primary questions the unadjusted 90% interval of told minus grid falls
+    inside the margin. So the abstract never drops the alone arm's number while a registered verdict
+    reads unresolved, different or missing. The main analysis decides; the strict one sits beside it."""
     checks = {}
     for q in design.PRIMARY:
         diffs = (pooled.get(q) or {}).get("differences", {})
@@ -300,6 +306,30 @@ def first_batch_spread(rows: list[dict]) -> dict:
     return out
 
 
+def rule_now() -> tuple[int, dict | None, str | None]:
+    """The replicate rule on wave 1's answers as `outputs/answers.csv` holds them: the number it picks,
+    the spreads it measured, and why it fell back to the most replicates (None when it did not). With
+    too few answers to measure a spread, the rule picks the most, as it does when no number meets the
+    target."""
+    rows = load(wave=1, max_replicate=design.R_BASE)
+    try:
+        spread = first_batch_spread(rows)
+    except ValueError as exc:
+        return design.R_MAX, None, str(exc)
+    return design.replicates_rule(spread), spread, None
+
+
+def replicates_due() -> bool:
+    """Whether the rule should run now: wave 1 has run and has no context due, live or in review, and
+    no result exists yet. `cutoff tick` applies the rule at that point, so no person chooses when."""
+    if (paths.DESIGN / "replicates.json").exists():
+        return False
+    metas = [store.read_meta(r["context"]) for r in store.design_rows() if r["wave"] == 1]
+    if not any(m["attempts"] for m in metas):
+        return False
+    return not any(store.summary(m)["status"] in ("due", "live", "review") for m in metas)
+
+
 def write_replicates() -> int:
     """Apply the registered rule once the first batch has finished, and record the result."""
     target = paths.DESIGN / "replicates.json"
@@ -314,17 +344,16 @@ def write_replicates() -> int:
     if open_:
         print(f"the first batch has not finished: {open_} of {len(wave1)} contexts still running or awaiting a reading")
         return 1
-    rows = load(wave=1, max_replicate=design.R_BASE)
-    spread = first_batch_spread(rows)
-    r = design.replicates_rule(spread)
+    r, spread, fallback = rule_now()
     record = {
         "replicates": r,
         "decided_at": store.now(),
         "first_batch_contexts_passed": status.count("passed"),
         "first_batch_contexts": len(wave1),
+        "fallback": fallback,
         "spread": spread,
         "required_se": {q: design.required_se(q) for q in design.PRIMARY},
-        "projected_se": {
+        "projected_se": None if spread is None else {
             q: {str(k): design.projected_se(spread[q]["cell"], spread[q]["grid"], k) for k in range(design.R_BASE, design.R_MAX + 1)}
             for q in design.PRIMARY
         },
@@ -347,6 +376,30 @@ def _ci(rec, key="ci95", digits=1) -> str:
     return "" if key not in rec else f" [{rec[key][0]:+.{digits}f}, {rec[key][1]:+.{digits}f}]"
 
 
+def _standing_lines(result: dict) -> list[str]:
+    """Where the design stands and which number of contexts a share the analysis used. The registered
+    analysis runs once, when no context stays open; any earlier run says INTERIM at its top."""
+    d, rr = result.get("design"), result.get("replicate_rule")
+    if d is None or rr is None:
+        return []
+    lines = []
+    if d["open"]:
+        lines += [f"**INTERIM.** {d['open']} contexts remain open ({d['due']} due, {d['live']} running, {d['review']} "
+                  "awaiting the reading). The registered analysis runs once, when none remains; nothing below is "
+                  "a registered result.", ""]  # fmt: skip
+    lines.append(f"The design at {rr['used']} contexts a share: {d['passed']} passed, {d['stopped']} stopped, "
+                 f"{d['open']} open.")  # fmt: skip
+    if rr["recorded"] is None:
+        rule = ("The replicate rule has not run: wave 1 has not finished." if not rr["wave_1_finished"] else
+                f"**The replicate rule has no record, though wave 1 has finished; on its answers the rule gives {rr['rule_now']}.**")
+    elif rr["agree"]:
+        rule = f"The replicate rule picked {rr['recorded']} on {rr['decided_at']}, and wave 1's answers still give {rr['rule_now']}."
+    else:
+        rule = (f"**The replicate rule's record says {rr['recorded']} (decided {rr['decided_at']}), but wave 1's "
+                f"answers give {rr['rule_now']}.**")  # fmt: skip
+    return lines + [rule, ""]
+
+
 def report(result: dict, strict: dict | None = None, reg: dict | None = None) -> str:
     lines = [
         "# The three arms on Texas: results",
@@ -356,6 +409,7 @@ def report(result: dict, strict: dict | None = None, reg: dict | None = None) ->
         "Brackets hold 95% intervals over evidence files unless a line says 90%.",
         "",
         *(registration.describe(reg) + [""] if reg is not None else []),
+        *_standing_lines(result),
         f"Contexts counted: {result['contexts']}.",
         "",
         "## Bridge: closed grid jump minus sealed jump (raw points)",
@@ -400,9 +454,10 @@ def report(result: dict, strict: dict | None = None, reg: dict | None = None) ->
         )
     a = result["abstract"]
     lines += ["", "## What the abstract reports", "",
-              ("The grid's jump alone: every isolated-arm difference's 90% interval lies inside the margin."
+              ("The research runs' jumps alone: both primary verdicts read equivalent, and both told-minus-grid 90% "
+               "intervals fall inside the margin."
                if a["grid_alone_suffices"] else
-               "The grid's jump and the alone arm's jump side by side: "
+               "The research runs' jumps beside the alone arm's pooled jumps: "
                + ", ".join(k for k, ok in a["checks"].items() if not ok) + " did not show equivalence."),
               "", "## Each family alone", "",
               "| Family | Question | Grid | Alone | Told | Alone − grid (90%) | Told − grid (90%) |", "|---|---|---|---|---|---|---|"]  # fmt: skip
@@ -442,12 +497,60 @@ def replicates_used() -> int:
     return int(json.loads(p.read_text())["replicates"]) if p.exists() else design.R_BASE
 
 
+def design_counts(r: int) -> dict:
+    """Where every context of the design stands, up to `r` contexts a share, from the public tables
+    (`design/contexts.csv` and `outputs/attempts.csv`), so a reader without the private store gets the
+    same counts. `open` counts the contexts still due, live or awaiting the reading."""
+    attempts: dict = defaultdict(list)
+    path = paths.OUTPUTS / "attempts.csv"
+    if path.exists():
+        with path.open() as f:
+            for row in csv.DictReader(f):
+                attempts[row["context"]].append({"state": row["state"]})
+    counts = dict.fromkeys(("passed", "stopped", "due", "live", "review"), 0)
+    for row in store.design_rows():
+        if row["replicate"] <= r:
+            counts[store.summary({"context": row["context"], "attempts": attempts.get(row["context"], [])})["status"]] += 1
+    counts["open"] = counts["due"] + counts["live"] + counts["review"]
+    return counts
+
+
+def replicate_record(r: int) -> dict:
+    """The number of contexts a share this analysis uses, beside what the rule's record says and what
+    the rule gives on wave 1's answers now. They agree unless someone skipped the rule or edited its
+    record."""
+    p = paths.DESIGN / "replicates.json"
+    recorded = json.loads(p.read_text()) if p.exists() else None
+    wave1 = [row for row in store.design_rows() if row["wave"] == 1 and row["replicate"] <= design.R_BASE]
+    attempts: dict = defaultdict(list)
+    path = paths.OUTPUTS / "attempts.csv"
+    if path.exists():
+        with path.open() as f:
+            for row in csv.DictReader(f):
+                attempts[row["context"]].append({"state": row["state"]})
+    states = [store.summary({"context": row["context"], "attempts": attempts.get(row["context"], [])})["status"] for row in wave1]
+    ran = any(attempts.get(row["context"]) for row in wave1)
+    finished = ran and not any(s in ("due", "live", "review") for s in states)
+    now = rule_now()[0] if finished else None
+    return {
+        "used": r,
+        "recorded": recorded["replicates"] if recorded else None,
+        "decided_at": recorded.get("decided_at") if recorded else None,
+        "wave_1_finished": finished,
+        "rule_now": now,
+        "agree": (recorded is not None and recorded["replicates"] == now) if finished else recorded is None,
+    }
+
+
 def main() -> int:
     reference = json.loads((paths.DESIGN / "reference.json").read_text())
     r = replicates_used()
     result = analyze(load(max_replicate=r), reference)
     strict = analyze(load(max_replicate=r, strict=True), reference)
     result["replicates"] = r
+    result["design"] = design_counts(r)
+    result["complete"] = result["design"]["open"] == 0
+    result["replicate_rule"] = replicate_record(r)
     reg = registration.changes()
     paths.OUTPUTS.mkdir(exist_ok=True)
     (paths.OUTPUTS / "results.json").write_text(json.dumps({"registration": reg, "main": result, "strict": strict}, indent=1) + "\n")

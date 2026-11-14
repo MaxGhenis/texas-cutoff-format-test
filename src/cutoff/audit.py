@@ -5,11 +5,14 @@ for the attempt (the launch record, the provider's event stream, the finalizatio
 prompt as sent) and checks, by family:
 
 - **Opus** (Claude Code): the launch pins `claude-opus-5-5`, offers only the three file-reading tools
-  in plan mode, and loads no settings, memory or MCP server; the stream's one init event agrees; every
-  assistant message names that model; the result's usage lists that model only; Subfleet attests it.
+  in plan mode, loads no settings file, memory or MCP server, adds nothing to the system prompt, and
+  gives each checked flag once; its one inline setting holds an environment variable and nothing
+  else; the stream's one init event agrees; every assistant message names that model; the result's
+  usage lists that model only; Subfleet attests it.
 - **Sol** (Codex): the launch pins `gpt-6.1-sol` at ultra effort in an ephemeral, read-only session
-  with user config, rules, project instructions, web search and multi-agent mode off; the stream holds
-  one turn, started and completed. An isolated ephemeral Codex session leaves no served-model record
+  with user config, rules, project instructions, web search and multi-agent mode off, and sets no
+  configuration key twice; the stream holds one turn, started and completed. A read-only Codex session
+  keeps a shell, so the stream check is what fails a context that runs a command. An isolated ephemeral Codex session leaves no served-model record
   that Subfleet can attest, so the pin in the launch record is the evidence; the audit records the
   model the answer names.
 - **Both:** the context called no tool; the prompt it received matches its registered prompt, byte
@@ -19,8 +22,9 @@ Each problem the audit reports goes to the public tables, so a problem gives a c
 would name a lane's tools, servers or folders. The private records keep the detail.
 
 Separately, `prior_flag` marks an answer whose `forecaster.prior_context` says more than "none",
-for the blinded reading the README describes, and `has_canary` reports whether the answer carries the
-sandbox's code word.
+for the blinded reading the README describes, and `has_canary` reports whether a text carries the
+sandbox's code word. `collect` and `dryrun` give it the whole kept stream, so the word fails a context
+wherever the model wrote it: its answer, an earlier message or its reasoning.
 """
 
 from __future__ import annotations
@@ -70,6 +74,16 @@ def _after(argv: list, flag: str):
     return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
 
 
+def _values(argv: list, flag: str) -> list:
+    """Every value the launch gives `flag`. A flag given twice has two; the provider would read one."""
+    return [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == flag]
+
+
+CLAUDE_ONCE = ("--model", "--tools", "--setting-sources", "--permission-mode")
+CLAUDE_PROMPT_FLAGS = ("--system-prompt", "--system-prompt-file", "--append-system-prompt", "--append-system-prompt-file")
+CODEX_ONCE = ("-m", "--sandbox")
+
+
 def _same_folder(a, b) -> bool:
     return bool(a) and bool(b) and os.path.realpath(str(a)) == os.path.realpath(str(b))
 
@@ -106,6 +120,25 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
             problems.append(f"launch: {flag} missing")
     if _after(argv, "--permission-mode") != "plan":
         problems.append("launch: not in plan mode")
+    for flag in CLAUDE_ONCE:
+        if len(_values(argv, flag)) != 1:
+            problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
+    if not set((_after(argv, "--allowedTools") or "").split(",")) - {""} <= CLAUDE_TOOLS:
+        problems.append("launch: the allowed tools go beyond the three file-reading tools")
+    for flag in CLAUDE_PROMPT_FLAGS:
+        if flag in argv:
+            problems.append(f"launch: {flag} adds to the system prompt")
+    for payload in _values(argv, "--settings"):
+        # Subfleet passes one inline setting, an environment variable for its own watchdog. Anything
+        # else (a hook, a model, a permission) would change what the context can do or see.
+        try:
+            keys = set(json.loads(payload))
+        except (ValueError, TypeError):
+            keys = {"unreadable"}
+        if not keys <= {"env"}:
+            problems.append(f"launch: --settings holds {len(keys - {'env'})} key(s) besides env")
+    if len(_values(argv, "--settings")) > 1:
+        problems.append("launch: --settings appears more than once")
     if not _same_folder(launch.get("cwd"), sandbox):
         problems.append("launch: the working folder is not the sandbox")
     inits = [e for e in evs if e.get("type") == "system" and e.get("subtype") == "init"]
@@ -128,15 +161,14 @@ def claude(stream: str, launch: dict, finalization: dict | None, sandbox) -> dic
     for e in evs:
         msg = e.get("message")
         if e.get("type") == "assistant" and isinstance(msg, dict):
-            if msg.get("model"):
-                models.add(msg["model"])
+            models.add(msg.get("model") or "no model named")
             for block in msg.get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     calls.append(str(block.get("name")))
     if models != {CLAUDE_MODEL}:
         problems.append(f"stream: assistant messages name models {sorted(models)}")
     if calls:
-        problems.append(f"the context called tools: {calls}")
+        problems.append(f"the context called {len(calls)} tool(s)")
     results = [e for e in evs if e.get("type") == "result"]
     final = ""
     if len(results) != 1 or results[0].get("subtype") != "success" or results[0].get("is_error"):
@@ -197,6 +229,14 @@ def codex(stream: str, launch: dict, finalization: dict | None, sandbox) -> dict
         problems.append(f"launch: effort is not {CODEX_EFFORT}")
     if _after(argv, "--sandbox") != "read-only":
         problems.append("launch: the sandbox is not read-only")
+    for flag in CODEX_ONCE:
+        if len(_values(argv, flag)) != 1:
+            problems.append(f"launch: {flag} appears {len(_values(argv, flag))} times")
+    keys = [str(v).split("=", 1)[0] for v in _values(argv, "-c")]
+    repeated = sorted({k for k in keys if keys.count(k) > 1})
+    if repeated:
+        # A later `-c` for the same key would override the value this audit checked.
+        problems.append(f"launch: {len(repeated)} configuration key(s) set more than once")
     if not _same_folder(launch.get("cwd"), sandbox):
         problems.append("launch: the working folder is not the sandbox")
     if sum(e.get("type") == "thread.started" for e in evs) != 1:
@@ -245,4 +285,7 @@ def prior_key(prior_context: str) -> str:
 
 
 def has_canary(text: str, word: str) -> bool:
-    return word.lower() in (text or "").lower()
+    """Whether `text` carries the sandbox's code word. The word's stem counts (`quillwort` of
+    `quillwort-1110`), so a respelled number or hyphen still shows."""
+    stem = re.split(r"[^a-z]", word.lower())[0]
+    return bool(stem) and stem in (text or "").lower()

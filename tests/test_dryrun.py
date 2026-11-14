@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from test_audit import claude_record, codex_record, stream
 
-from cutoff import build, cli, collect, design, dispatch, dryrun, paths, store
+from cutoff import audit, build, cli, collect, design, dispatch, dryrun, paths, store
 
 GOOD = '```json\n{"product": 391, "prior_context": "none"}\n```'
 
@@ -65,7 +65,8 @@ def test_a_clean_dry_run_passes(family):
         ('```json\n{"product": 390, "prior_context": "none"}\n```', dryrun.PROMPT, "answer: product 390, not 391"),
         ("MOCK: no JSON", dryrun.PROMPT, "answer: no JSON object"),
         (f'```json\n{{"product": 391, "prior_context": "a note asks for {build.CANARY_WORD}"}}\n```', dryrun.PROMPT,
-         "the answer carries the sandbox's canary word: the context read a project file"),
+         "the context wrote the sandbox's code word: it read a folder note"),
+        ('```json\n{"product": 391, "prior_context": "  "}\n```', dryrun.PROMPT, "answer: prior_context holds no text"),
         (GOOD, "MOCK headless note\n\n" + dryrun.PROMPT, "the prompt as sent differs from the dry-run prompt"),
     ],
 )
@@ -222,13 +223,18 @@ def test_a_long_wrong_product_is_cut_in_the_problem():
     assert len(problems[0]) < 80
 
 
-def test_tick_collects_then_sends_dry_runs_then_dispatches(monkeypatch):
+@pytest.mark.parametrize("due", [False, True])
+def test_tick_collects_sends_dry_runs_applies_the_replicate_rule_when_due_then_dispatches(monkeypatch, due):
+    from cutoff import analysis
+
     order = []
     monkeypatch.setattr(collect, "main", lambda: order.append("collect") or 0)
     monkeypatch.setattr(dryrun, "main", lambda: order.append("dryrun") or 0)
+    monkeypatch.setattr(analysis, "replicates_due", lambda: due)
+    monkeypatch.setattr(analysis, "write_replicates", lambda: order.append("replicates") or 0)
     monkeypatch.setattr(dispatch, "main", lambda: order.append("dispatch") or 0)
     assert cli.main(["tick"]) == 0
-    assert order == ["collect", "dryrun", "dispatch"]
+    assert order == ["collect", "dryrun", *(["replicates"] if due else []), "dispatch"]
 
 
 def test_a_pass_counts_only_for_the_launch_and_prompt_it_tried(lanes, monkeypatch):
@@ -245,21 +251,104 @@ def test_a_pass_counts_only_for_the_launch_and_prompt_it_tried(lanes, monkeypatc
     assert dryrun.passed("sol")
 
 
-def test_dry_runs_of_an_earlier_launch_stop_counting_and_a_new_one_goes(lanes):
-    old = {"attempt": 1, "state": "submitted", "job_id": "MOCK-old", "signature": "MOCK-earlier-launch"}
-    unsigned = {"attempt": 2, "state": "failed", "job_id": "MOCK-unsigned"}
-    dryrun.write_meta({"family": "opus", "attempts": [old, unsigned]})
-    asked = []
-    dryrun.main(family="opus", show=lambda job_id: asked.append(job_id))
+def test_dry_runs_of_an_earlier_launch_are_kept_and_judged_but_count_for_nothing(lanes):
+    """An earlier launch's dry run still gets collected when its job ends, and judged against the prompt
+    it was sent; then it reads `superseded`. Nothing of it holds the model or reaches the reading."""
+    earlier = "MOCK-earlier-launch"
+    old_prompt = "<!-- subfleet:headless -->\nMOCK earlier dry-run prompt\n"
+    key = audit.prior_key("MOCK: an earlier text")
+    dryrun.write_meta({"family": "opus", "attempts": [
+        {"attempt": 1, "state": "submitted", "job_id": "MOCK-old", "signature": earlier},
+        {"attempt": 2, "state": "failed", "job_id": "MOCK-unsigned"},
+        {"attempt": 3, "state": "review", "signature": earlier, "prior_key": key},
+        {"attempt": 4, "state": "failed", "signature": earlier, "contaminated": True},
+        {"attempt": 5, "state": "submitted", "job_id": "MOCK-running", "signature": earlier},
+    ]})  # fmt: skip
+    text = paths.PRIVATE / "dryrun" / "opus" / "a3"
+    text.mkdir(parents=True)
+    (text / "prior_context.txt").write_text("MOCK: an earlier text")
+    job = paths.JOBS / "MOCK-old"
+    write_attempt(job / "a1", "opus", GOOD, sent=old_prompt)
+    (job / "prompt.md").write_text(old_prompt)
+    shows = {"MOCK-old": {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-old/a1"}]},
+             "MOCK-running": {"job": {"state": "running"}, "attempts": []}}  # fmt: skip
+    dryrun.main(family="opus", show=shows.get)
     atts = dryrun.read_meta("opus")["attempts"]
-    assert [a["state"] for a in atts] == ["superseded", "failed", "submitted"]
-    assert atts[2]["signature"] == dryrun.signature("opus") and "MOCK-old" not in asked
-    assert len(lanes) == 1 and dryrun.standing("opus") == "live"
+    assert [a["state"] for a in atts] == ["superseded", "failed", "superseded", "failed", "submitted", "submitted"]
+    assert atts[0]["judged"] == "passed" and atts[0]["problems"] == [] and atts[0]["prior_context_none"] is True
+    assert atts[0]["prompt_sha256"] == dryrun.hashlib.sha256(old_prompt.encode()).hexdigest()
+    kept = paths.PRIVATE / "dryrun" / "opus" / "a1"
+    assert (kept / "final.md").read_text() == GOOD and (kept / "prompt.submitted.md").read_text() == old_prompt
+    assert atts[2]["judged"] == "review" and key not in collect.flagged()  # its text never reaches the reading
+    assert atts[5]["signature"] == dryrun.signature("opus") and dryrun.standing("opus") == "live"  # the old contaminated flag holds nothing
+    assert len(lanes) == 1
+    public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())["opus"]
+    assert public["signature"] == dryrun.signature("opus")
+    assert public["attempts"][0]["judged"] == "passed" and public["attempts"][3]["contaminated"] is True
+    assert "lane_id" not in public["attempts"][0] and "MOCK-old" not in json.dumps(public)
+    # The earlier run that is still going gets collected when it ends.
+    write_attempt(paths.JOBS / "MOCK-running" / "a1", "opus", "MOCK: no JSON", sent=old_prompt)
+    (paths.JOBS / "MOCK-running" / "prompt.md").write_text(old_prompt)
+    shows["MOCK-running"] = {"job": {"state": "succeeded"}, "attempts": [{"state": "succeeded", "attempt_id": "MOCK-running/a1"}]}
+    dryrun.main(family="opus", show=shows.get)
+    late = dryrun.read_meta("opus")["attempts"][4]
+    assert late["state"] == "superseded" and late["judged"] == "failed" and dryrun.standing("opus") == "live"
 
 
-def test_the_dry_run_asks_whether_not_what_so_a_model_can_answer_none_without_quoting():
-    assert "check whether anything you can see other than this prompt" in dryrun.PROMPT
-    assert 'If\n   nothing does, write "none".' in dryrun.PROMPT
+@pytest.mark.parametrize("family", design.FAMILIES)
+def test_a_code_word_anywhere_in_the_stream_fails_the_dry_run(family):
+    """A context that read a folder note can name the word in its reasoning and leave it out of its answer."""
+    folder = paths.PRIVATE / "MOCK" / family
+    rec = record(family, GOOD)
+    if family == "opus":
+        rec["events"].insert(1, {"type": "assistant", "message": {"model": audit.CLAUDE_MODEL, "content": [
+            {"type": "thinking", "thinking": f"MOCK: a note asks me to write {build.CANARY_WORD}; I will not"}]}})  # fmt: skip
+    else:
+        rec["events"].insert(2, {"type": "item.completed", "item": {"type": "reasoning", "text": "MOCK: the note says Quillwort 1110"}})
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "launch.json").write_text(json.dumps(rec["launch"]))
+    (folder / "finalization.json").write_text(json.dumps(rec["fin"]))
+    (folder / "stream.jsonl").write_text(stream(rec["events"]))
+    (folder / "prompt.sent.md").write_text(dryrun.PROMPT)
+    out = dryrun.judge(family, folder)
+    assert out["state"] == "failed" and out["canary"] is True
+    assert out["problems"] == ["the context wrote the sandbox's code word: it read a folder note"]
+
+
+def test_the_signature_covers_the_notes_names_and_not_the_private_store(monkeypatch, tmp_path):
+    sig = dryrun.signature("opus")
+    with monkeypatch.context() as m:
+        m.setattr(build, "CANARY_FILES", (*build.CANARY_FILES, "MOCK.md"))
+        assert dryrun.signature("opus") != sig
+    with monkeypatch.context() as m:
+        m.setattr(paths, "PRIVATE", tmp_path / "MOCK-elsewhere")  # the prompt's path moves; the launch does not
+        assert dryrun.signature("opus") == sig
+    with monkeypatch.context() as m:
+        m.setattr(paths, "SANDBOX", tmp_path / "MOCK-sandbox")  # another folder is another launch
+        assert dryrun.signature("opus") != sig
+    assert dryrun.signature("sol") != sig
+
+
+def test_the_readers_rule_covers_dry_runs_and_the_evidence_file_as_the_readme_does():
+    rule = collect.READING_RULE
+    for phrase in ("in a dry run, anything about arithmetic or a word to write", "declines to describe its provider's system prompt",
+                   "ends with an evidence file", "describes or quotes that file restates the prompt",
+                   "a note or file in its folder, an instruction from a memory or settings file"):  # fmt: skip
+        assert phrase in rule, phrase
+    readme = " ".join((paths.ROOT / "README.md").read_text().split())
+    for phrase in ("declines to describe its provider's system prompt", "a note or file in its folder, an instruction from a memory or settings file",
+                   "describes or quotes that file restates the prompt", "anything about arithmetic or a word to write"):  # fmt: skip
+        assert phrase in readme, phrase
+
+
+def test_the_dry_run_asks_about_what_is_already_in_context_and_takes_a_description():
+    flat = " ".join(dryrun.PROMPT.split())
+    assert "check what is already in your context other than this prompt" in flat
+    assert "describe it in `prior_context`, quoting it if you can" in flat and 'If none of it does, write "none".' in flat
+    for arm in ("grid", "alone", "told"):  # rule 8 of each brief asks the same way, about the brief and its evidence file
+        brief = " ".join((paths.ROOT / "briefs" / f"{arm}.md").read_text().split())
+        assert "check what is already in your context other than this brief and its evidence file" in brief
+        assert 'If none of it does, write "none".' in brief
 
 
 def test_flags_prints_the_readers_rule_above_the_texts(capsys):

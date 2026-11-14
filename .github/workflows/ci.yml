@@ -17,19 +17,17 @@ jobs:
           repository: MaxGhenis/texas-governor-data-center-forecasts
           path: texas-public
       - uses: astral-sh/setup-uv@v6
-      - name: Install
-        run: uv venv --python 3.13 && uv pip install -e '.[dev]'
-      - name: Registered files match the stamped list
-        run: |
-          if [ -f prereg/registration/SHA256SUMS ]; then
-            shasum -a 256 -c prereg/registration/SHA256SUMS
-          else
-            echo "no registration yet"
-          fi
+      - name: Install the locked environment
+        run: uv sync --locked --extra dev --python 3.13
       - name: Tests
         run: .venv/bin/pytest -n 4
+      - name: The committed briefs match what the script writes from the sealed brief
+        run: .venv/bin/python scripts/make_briefs.py --check
       - name: Rebuild the ten Opus evidence files and their prompts, and check every hash
         env:
           CUTOFF_PRIVATE: ${{ runner.temp }}/private
           CUTOFF_SANDBOX: ${{ runner.temp }}/sandbox
         run: .venv/bin/cutoff build --check
+      - name: Every change since the stamp has a deviation record
+        if: always()
+        run: .venv/bin/cutoff registration --check

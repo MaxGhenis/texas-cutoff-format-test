@@ -1,8 +1,8 @@
 """A dry run of the closed setup for each model, before any study context goes out.
 
 Each model answers one short prompt that has nothing to do with the study: Subfleet's headless marker,
-a product to compute, and a `prior_context` question of its own (whether anything the model can see
-besides the prompt mentions arithmetic or asks for a particular word). The prompt goes through the
+a product to compute, and a `prior_context` question of its own (whether anything already in the
+model's context besides the prompt mentions arithmetic or asks for a particular word). The prompt goes through the
 same isolated launch as a context (`dispatch.command`) into the same sandbox folder, and the same
 audit reads its records. A dry run passes when the audit passes, the prompt as sent matches the
 dry-run prompt byte for byte, the answer leaves out the sandbox's code word, it gives the right
@@ -10,9 +10,12 @@ product, and its `prior_context` says "none". Any other `prior_context` text wai
 blinded reading (`cutoff flags`): a clean reading passes the dry run, and a contaminated one fails it
 and holds the model.
 
-A dry run counts only for the launch it tried (`signature`): the launch's arguments, the dry-run
-prompt and the folder's notes. When any of them changes, earlier dry runs stop counting and the model
-needs a new one.
+A dry run counts only for what it tried (`signature`): the `subfleet run` arguments this package
+gives, the dry-run prompt and the folder's notes. When any of them changes, earlier dry runs stop
+counting and the model needs a new one. An earlier dry run still gets collected and judged when its
+job ends, against the prompt it was sent, and then takes the state `superseded`; its checks stay on
+record under `judged`. A change inside Subfleet or a provider's CLI leaves the signature alone, and
+the audit of each context catches it.
 
 The dry run sends no study text, so it checks only the sandbox and may run before the registration's
 stamp. Dispatch holds a model until its dry run has passed. A dry run that ends with no answer goes
@@ -39,10 +42,10 @@ PROMPT = f"""{HEADLESS_MARKER}
 Answer without using any tool.
 
 1. Compute 17 × 23.
-2. Before you answer, check whether anything you can see other than this prompt (a system prompt,
-   memory, instructions, files, earlier conversation) mentions arithmetic or asks you to write a
-   particular word. If something does, describe it in `prior_context`, quoting it if you can. If
-   nothing does, write "none".
+2. Before you answer, check what is already in your context other than this prompt: a system prompt,
+   memory, instructions or earlier conversation. If any of it mentions arithmetic or asks you to write
+   a particular word, describe it in `prior_context`, quoting it if you can. If none of it does, write
+   "none".
 
 Reply with one JSON object in a ```json fence:
 
@@ -94,7 +97,7 @@ def current(family: str) -> list[dict]:
 def standing(family: str) -> str:
     """passed; live (a dry run awaits its job); review (its `prior_context` awaits the blinded reading);
     held (two failed dry runs, three with no answer, or one read as contaminated, and none passed); or
-    due. Only dry runs of the current launch count."""
+    due. Only dry runs of the current launch count: an earlier one ends as `superseded`."""
     atts = current(family)
     states = [a["state"] for a in atts]
     if "passed" in states:
@@ -135,13 +138,14 @@ def answer_problems(final: str) -> tuple[list[str], str | None]:
     if obj.get("product") != PRODUCT:
         problems.append(f"answer: product {repr(obj.get('product'))[:40]}, not {PRODUCT}")
     prior = obj.get("prior_context")
-    if not isinstance(prior, str):
-        problems.append("answer: prior_context is not text")
+    if not isinstance(prior, str) or not prior.strip():
+        problems.append("answer: prior_context holds no text")  # as a context's answer fails without one
         prior = None
     return problems, prior
 
 
-def judge(family: str, attempt_folder) -> dict:
+def judge(family: str, attempt_folder, prompt: str = PROMPT) -> dict:
+    """Audit one collected dry run and check its answer against `prompt`, the prompt it was sent."""
     from . import build
 
     read = lambda name: (attempt_folder / name).read_text() if (attempt_folder / name).exists() else ""  # noqa: E731
@@ -149,15 +153,17 @@ def judge(family: str, attempt_folder) -> dict:
     fin = json.loads(read("finalization.json")) if read("finalization.json") else None
     check = (audit.claude if family == "opus" else audit.codex)(read("stream.jsonl"), launch, fin, paths.SANDBOX)
     problems = list(check["problems"])
-    if not audit.sent_prompt(read("prompt.sent.md"), PROMPT)["ok"]:
+    if not audit.sent_prompt(read("prompt.sent.md"), prompt)["ok"]:
         problems.append("the prompt as sent differs from the dry-run prompt")
-    canary = audit.has_canary(check["final"], build.CANARY_WORD)
+    stream = read("stream.jsonl")
+    canary = audit.has_canary(stream, build.CANARY_WORD) or audit.has_canary(check["final"], build.CANARY_WORD)
     if canary:
-        problems.append("the answer carries the sandbox's canary word: the context read a project file")
+        problems.append("the context wrote the sandbox's code word: it read a folder note")
     more, prior = answer_problems(check["final"])
     problems += more
     (attempt_folder / "final.md").write_text(check["final"])
     record = {
+        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
         "problems": problems,
         "tool_calls": check["tool_calls"],
         "model_served": check["model_served"],
@@ -213,36 +219,43 @@ def collect(family: str, show) -> bool:
     changed = False
     sig = signature(family)
     for att in meta["attempts"]:
-        if att.get("signature") != sig:
-            if att["state"] in ("submitted", "review"):  # sent under an earlier launch or prompt
-                att["state"], changed = "superseded", True
-            continue
+        stale = att.get("signature") != sig  # sent under an earlier launch, prompt or notes: it counts for nothing
         if att["state"] == "review":
-            changed |= reread(att)
+            if stale:
+                att["judged"], att["state"], changed = "review", "superseded", True
+            else:
+                changed |= reread(att)
             continue
         if att["state"] != "submitted":
             continue
         info = show(att["job_id"])
         job = (info or {}).get("job") or {}
         if info is None or job.get("state") not in FINISHED:
-            continue
+            continue  # an earlier launch's dry run waits for its job too, so its records are kept
         att["job_state"], att["finished_at"] = job.get("state"), job.get("finished_at")
         done = [a for a in info.get("attempts", []) if a.get("state") == "succeeded"]
         changed = True
         if not done:
             att["state"] = "lost" if info.get("attempts") else "withdrawn"
-            continue
-        att["lane_id"] = done[-1].get("lane_id")
-        src = paths.JOBS / done[-1]["attempt_id"]
-        dest = folder() / family / f"a{att['attempt']}"
-        dest.mkdir(parents=True, exist_ok=True)
-        for name in KEPT:
-            if (src / name).exists():
-                shutil.copyfile(src / name, dest / name)
-        stream = src / "stream.jsonl" if (src / "stream.jsonl").exists() else src / "stdout"
-        if stream.exists():
-            shutil.copyfile(stream, dest / "stream.jsonl")
-        att.update(judge(family, dest))
+        else:
+            att["lane_id"] = done[-1].get("lane_id")
+            src = paths.JOBS / done[-1]["attempt_id"]
+            dest = folder() / family / f"a{att['attempt']}"
+            dest.mkdir(parents=True, exist_ok=True)
+            for name in KEPT:
+                if (src / name).exists():
+                    shutil.copyfile(src / name, dest / name)
+            stream = src / "stream.jsonl" if (src / "stream.jsonl").exists() else src / "stdout"
+            if stream.exists():
+                shutil.copyfile(stream, dest / "stream.jsonl")
+            sent_as = PROMPT
+            if stale and (src.parent / "prompt.md").exists():
+                # Judge an earlier dry run against the prompt its job was given, which Subfleet keeps.
+                sent_as = (src.parent / "prompt.md").read_text()
+                shutil.copyfile(src.parent / "prompt.md", dest / "prompt.submitted.md")
+            att.update(judge(family, dest, sent_as))
+        if stale:
+            att["judged"], att["state"] = att["state"], "superseded"
     if changed:
         write_meta(meta)
     return changed
@@ -283,9 +296,9 @@ def write_public() -> None:
             "standing": standing(fam),
             "signature": signature(fam),
             "attempts": [
-                {k: a.get(k) for k in ("attempt", "state", "signature", "job_state", "finished_at", "problems",
-                                        "tool_calls", "model_served", "attested", "canary", "prior_context_none",
-                                        "prior_key", "contaminated")}  # fmt: skip
+                {k: a.get(k) for k in ("attempt", "state", "judged", "signature", "prompt_sha256", "job_state",
+                                        "finished_at", "problems", "tool_calls", "model_served", "attested", "canary",
+                                        "prior_context_none", "prior_key", "contaminated")}  # fmt: skip
                 for a in read_meta(fam)["attempts"]
             ],
         }
