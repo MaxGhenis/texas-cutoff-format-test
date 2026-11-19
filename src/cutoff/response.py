@@ -201,18 +201,28 @@ def _scenario_problems(scenario: dict | None, cell: float) -> list[str]:
 
 FIRST_NAMES = {"hinojosa": ("gina",), "abbott": ("greg", "gregory")}
 PARTY = {"hinojosa": ("d", "dem", "democrat", "democratic"), "abbott": ("r", "rep", "gop", "republican")}
-TITLES = ("gov", "governor")
+# The same titles count for both candidates, so neither one's cells fail more often for a title: the
+# office at stake, won or held ("Governor", "Gov.-elect"), Hinojosa's seat ("State Rep."), and
+# honorifics. Before a name, "Rep." reads as the seat; after one, as Abbott's party.
+TITLES = ("gov", "governor", "elect", "state", "rep", "representative", "mr", "ms", "mrs", "dr")
+STATE = ("tx", "texas")
+PLAIN = re.compile(r"[A-Za-z\s.,()'-]*")
 
 
 def names_winner(winner, surname: str) -> bool:
-    """Whether `winner` is the candidate's surname or first name and surname, case, punctuation and
-    spacing aside. A title ("Governor") may stand before the name and the candidate's own party label
-    ("(D)", "Republican") after it; nothing else may. "Hinojosa did not win" names no winner."""
-    if not isinstance(winner, str):
+    """Whether `winner` is the candidate's surname or first name and surname, case, spacing and plain
+    punctuation aside. Titles may stand before the name, and the candidate's own party label, with or
+    without the state ("(D-TX)"), before or after it; nothing else may, and the text may hold only
+    letters, spaces and . , ( ) ' -. "Hinojosa did not win" and "Hinojosa?" name no winner."""
+    if not isinstance(winner, str) or not PLAIN.fullmatch(winner):
         return False
     words = re.findall(r"[a-z]+", winner.lower())
-    if words and words[0] in TITLES:
+    while words and words[0] in TITLES:
         words = words[1:]
+    if words and words[0] in PARTY[surname]:
+        words = words[1:]
+    if len(words) > 1 and words[-1] in STATE and words[-2] in PARTY[surname]:
+        words = words[:-1]
     if words and words[-1] in PARTY[surname]:
         words = words[:-1]
     return words == [surname] or any(words == [first, surname] for first in FIRST_NAMES[surname])

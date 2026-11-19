@@ -346,6 +346,9 @@ def test_the_text_fields_may_stay_empty_or_be_left_out():
         ("Hinojosa (R)", False), ("Hinojosa wins", False), ("Hinojosa (D) did not win", False),
         ("Abbott", False), ("Greg Abbott", False), ("Hinojosa, Abbott", False), ("Hinojosa (D), Abbott (R)", False),
         ("", False), (None, False), (53, False),
+        ("State Rep. Gina Hinojosa (D)", True), ("Gov.-elect Gina Hinojosa", True), ("Gina Hinojosa (D-TX)", True),
+        ("Democrat Gina Hinojosa", True), ("Hinojosa (Rep.)", False), ("Republican Gina Hinojosa", False),
+        ("Hinojosa?", False), ("Hinojosa (50%)", False), ("Hinojosa \u2713", False), ("Hinojosa/Abbott", False),
     ],
 )  # fmt: skip
 def test_the_winner_must_be_the_surname_or_full_name_and_nothing_else(winner, ok):
@@ -359,3 +362,28 @@ def test_the_winner_must_be_the_surname_or_full_name_and_nothing_else(winner, ok
             R.parse(a, key, 53.0)
     assert R.names_winner("Greg Abbott", "abbott") and R.names_winner("abbott", "abbott")
     assert R.names_winner("Gov. Greg Abbott (R)", "abbott") and not R.names_winner("Abbott (D)", "abbott")
+
+
+WINNER_FORMS = (
+    "{name}", "{first} {name}", "Governor {name}", "Gov.-elect {first} {name}", "State Rep. {first} {name}",
+    "Rep. {name}", "Mr. {name}", "Ms. {name}", "Dr. {name}", "{name} ({party})", "{first} {name}, {party}",
+    "{party} {first} {name}", "{name} ({party}-TX)", "{name} ({other})", "{name} ({other}-TX)",
+    "{other} {first} {name}", "not {name}", "{name} wins", "{name}?", "{name} (1)", "{first}", "{name} {name}",
+)
+
+
+@pytest.mark.parametrize("form", WINNER_FORMS)
+def test_the_winner_rule_treats_both_candidates_alike(form):
+    """No wording passes for one candidate and fails for the other, with every first name and party
+    label the rule knows, so the rule cannot fail the cells one candidate wins more often. A party word
+    that is also a title ("Rep") passes before either name as the title, so it is left out before a name."""
+    verdicts = set()
+    for cand, rival in (("hinojosa", "abbott"), ("abbott", "hinojosa")):
+        for first in R.FIRST_NAMES[cand]:
+            for party in R.PARTY[cand]:
+                for other in R.PARTY[rival]:
+                    if form.startswith(("{party}", "{other}")) and {party, other} & set(R.TITLES):
+                        continue
+                    text = form.format(name=cand.title(), first=first.title(), party=party.title(), other=other.title())
+                    verdicts.add(R.names_winner(text, cand))
+    assert len(verdicts) == 1

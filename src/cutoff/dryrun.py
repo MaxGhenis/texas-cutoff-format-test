@@ -15,18 +15,21 @@ gives, the dry-run prompt and the folder's notes. When any of them changes, earl
 counting and the model needs a new one. An earlier dry run still gets collected and judged when its
 job ends, against the prompt its job was given, and keeps the state it earned; it just no longer
 counts (`outputs/dryrun.json` marks each attempt `current` or not). So a change that is later undone
-brings its dry runs back, and no caller can discard another's. A change inside Subfleet or a
+brings its dry runs back, and no caller can discard another's; a context sent under the change in
+another launch shape still leaves them behind (below). A change inside Subfleet or a
 provider's CLI leaves the signature alone, so each dry run and context also records the shape of the
 launch Subfleet made (`audit.launch_shape`): the provider's arguments, apart from the session id and
 answer file that name each job, its folder and the environment variables it removed. A passed dry
-run stops counting once a context sent after its job finished shows another shape (`drifted`), and
-the model waits for a new dry run, which `cutoff tick` sends. The audit still checks every context's
-launch against the arguments it allows.
+run stops counting once a context sent while it counted shows another shape (`drifted`), and the
+model waits for a new dry run, which `cutoff tick` sends. A second passed dry run left behind that way
+holds the model for a person. The audit still checks every context's launch against the arguments it
+allows.
 
 The dry run sends no study text, so it checks only the sandbox and may run before the registration's
 stamp. Dispatch holds a model until its dry run has passed. A dry run that ends with no answer goes
-again, and so does a withdrawn job. After two failed dry runs, three that ended with no answer, or
-one contaminated reading, the model stops until a person reads them and sends the next with
+again, and so does a withdrawn job. After two failed dry runs, three that ended with no answer, one
+contaminated reading, or a second passed dry run left behind, the model stops until a person reads them
+and sends the next with
 `cutoff dryrun --family F --again`. `outputs/dryrun.json` records each attempt's checks, without lane
 ids; the records themselves stay in the private store.
 """
@@ -121,21 +124,31 @@ def shape(family: str, att: dict) -> str | None:
         return None
 
 
-def drifted(family: str, att: dict) -> int:
-    """How many of the family's context attempts, sent after this dry run's job finished, Subfleet
-    launched in another shape (`audit.launch_shape`). Contexts go out only after a dry run passes, so
-    those are the contexts sent while it counted."""
+def launched_otherwise(family: str, att: dict) -> list[str]:
+    """The family's context attempts ("<context> a<n>") that Subfleet launched in another shape
+    (`audit.launch_shape`) while this dry run counted: sent after its job finished and, once a later
+    current dry run passed, no later than that one's job finished. Contexts go out only while a dry run
+    counts, so these are the launches it vouched for and did not try."""
     own, since = shape(family, att), _when(att.get("finished_at"))
     if not own or since is None:
-        return 0
-    n = 0
+        return []
+    later = [_when(a.get("finished_at")) for a in current(family) if a["state"] == "passed"]
+    until = min((t for t in later if t is not None and t > since), default=None)
+    out = []
     for r in store.design_rows():
         if r["family"] != family:
             continue
         for a in store.read_meta(r["context"])["attempts"]:
             sent = _when(a.get("dispatched_at"))
-            n += bool(a.get("launch_shape") and a["launch_shape"] != own and sent is not None and sent > since)
-    return n
+            if (a.get("launch_shape") and a["launch_shape"] != own and sent is not None and sent > since
+                    and (until is None or sent <= until)):  # fmt: skip
+                out.append(f"{r['context']} a{a['attempt']}")
+    return out
+
+
+def drifted(family: str, att: dict) -> int:
+    """How many context attempts Subfleet launched otherwise while this dry run counted."""
+    return len(launched_otherwise(family, att))
 
 
 def standing(family: str) -> str:
@@ -379,9 +392,12 @@ def main(family: str | None = None, again: bool = False, show=None) -> int:
                       f"times, one read as contaminated, or Subfleet launched later contexts differently from "
                       f"{MAX_DRIFTED} passed ones; read them in {folder() / fam} and send the next "
                       f"with `cutoff dryrun --family {fam} --again`")  # fmt: skip
+                if moved := [c for a in current(fam) if a["state"] == "passed" for c in launched_otherwise(fam, a)]:
+                    print(f"{fam}: launched differently from a passed dry run: {', '.join(moved)} "
+                          f"(their launch records sit under {store.contexts_dir()})")  # fmt: skip
             elif s == "due" or (s == "held" and again):
                 if any(drifted(fam, a) for a in current(fam) if a["state"] == "passed"):
-                    print(f"holding {fam}: Subfleet launched a later context differently from its passed dry run, "
+                    print(f"{fam}: Subfleet launched a later context differently from its passed dry run, "
                           "so it gets a new one")  # fmt: skip
                 if problems:
                     for p in problems:

@@ -108,8 +108,9 @@ def table() -> str:
         "files, that needs a within-cell spread below "
         f"{t_margin / stats.t.ppf(0.95, design.N_FILES - 1) * math.sqrt(16 * 2 * 6 / (2 * design.SUM_W2)):.2f} points, "
         "if a grid context's six answers vary independently. Grid answers that move together, as when a "
-        "context shifts all six by one amount, give its jump less spread, and the limit rises. "
-        "The registration treats Talarico's share as a secondary result for that reason.",
+        "context shifts all six by one amount, give that context's jump less spread, and the limit rises. "
+        "Because its equivalence test needs so small a standard error, we give Talarico's share no verdict "
+        "and report its differences with their intervals.",
     ]
     return "\n".join(lines) + "\n"
 

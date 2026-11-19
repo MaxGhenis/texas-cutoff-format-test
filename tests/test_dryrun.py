@@ -443,8 +443,62 @@ def test_a_passed_dry_run_stops_counting_once_a_later_context_launches_otherwise
     assert dryrun.standing(fam) == "held"  # two passed dry runs left behind: a person looks before the next
     dryrun.write_public()
     public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())[fam]["attempts"]
-    assert [a["contexts_launched_otherwise"] for a in public] == [2, 1]
+    assert [a["contexts_launched_otherwise"] for a in public] == [1, 1]  # each counts only while it counted
     assert [a["launch_shape"] for a in public] == [own, "MOCK-new"]
+
+
+def context_attempt(fam: str, sent: str, launch_shape: str, which: int = 0) -> str:
+    """One more MOCK attempt of one of the family's contexts, sent at `sent` in `launch_shape`."""
+    row = [r for r in store.design_rows() if r["family"] == fam][which]
+    m = store.read_meta(row["context"])
+    m["attempts"].append({"attempt": len(m["attempts"]) + 1, "state": "passed", "dispatched_at": sent, "launch_shape": launch_shape})
+    store.write_meta(m)
+    return f"{row['context']} a{len(m['attempts'])}"
+
+
+def test_one_drift_sends_a_new_dry_run_and_a_second_holds_the_model_for_a_person(lanes, capsys):
+    fam = "opus"
+    own = audit.launch_shape(record(fam, GOOD)["launch"])
+    dryrun.write_meta(meta(fam, "passed", finished_at="2026-11-20T10:00:00Z", launch_shape=own))
+    first = context_attempt(fam, "2026-11-20T11:00:00Z", "MOCK-new")
+    dryrun.main(family=fam, show=lambda job_id: None)
+    out = capsys.readouterr().out
+    assert len(lanes) == 1 and dryrun.standing(fam) == "live" and "launched a later context differently" in out
+    assert not [x for x in out.splitlines() if x.startswith(("holding", "refusing"))]  # the tick job alerts on these
+    m = dryrun.read_meta(fam)
+    m["attempts"][-1].update(state="passed", finished_at="2026-11-20T12:00:00Z", launch_shape="MOCK-new")
+    dryrun.write_meta(m)
+    assert dryrun.standing(fam) == "passed"
+    second = context_attempt(fam, "2026-11-20T13:00:00Z", "MOCK-third", which=1)
+    dryrun.main(family=fam, show=lambda job_id: None)
+    out = capsys.readouterr().out
+    assert len(lanes) == 1 and dryrun.standing(fam) == "held"
+    assert "holding opus" in out and first in out and second in out  # the person learns which launches moved
+    dryrun.main(family=fam, show=lambda job_id: None)
+    assert len(lanes) == 1  # a held model gets nothing until a person sends the next
+    dryrun.main(family=fam, again=True, show=lambda job_id: None)
+    assert len(lanes) == 2 and dryrun.standing(fam) == "live"
+    m = dryrun.read_meta(fam)
+    m["attempts"][-1].update(state="passed", finished_at="2026-11-20T15:00:00Z", launch_shape="MOCK-third")
+    dryrun.write_meta(m)
+    assert dryrun.standing(fam) == "passed"
+
+
+def test_a_drift_counts_once_for_each_current_dry_run_it_leaves_behind():
+    fam = "sol"
+    dryrun.write_meta(meta(fam, "passed", finished_at="2026-11-20T10:00:00Z", launch_shape="MOCK-a"))
+    context_attempt(fam, "2026-11-20T11:00:00Z", "MOCK-b")
+    context_attempt(fam, "2026-11-20T11:30:00Z", "MOCK-c", which=1)
+    assert dryrun.standing(fam) == "due"  # two contexts, one dry run left behind: a new dry run, no hold
+    m = dryrun.read_meta(fam)
+    m["attempts"].insert(0, {"attempt": 9, "state": "passed", "signature": "MOCK-earlier-launch",
+                             "finished_at": "2026-11-20T09:00:00Z", "launch_shape": "MOCK-z"})  # fmt: skip
+    dryrun.write_meta(m)
+    assert dryrun.standing(fam) == "due"  # a dry run of an earlier launch neither counts nor holds
+    for n in (2, 3):
+        m["attempts"].append({"attempt": n, "state": "failed", "signature": dryrun.signature(fam)})
+        dryrun.write_meta(m)
+        assert dryrun.standing(fam) == ("due" if n == 2 else "held")  # failed dry runs hold as before
 
 
 def test_a_dry_run_collected_before_shapes_were_recorded_reads_its_shape_from_its_launch():
