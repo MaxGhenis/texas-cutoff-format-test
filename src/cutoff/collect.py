@@ -58,18 +58,47 @@ ATTEMPT_COLUMNS = [
 ]  # fmt: skip
 
 
+JOB_ID = re.compile(r"\d{8}-\d{6}-[A-Za-z0-9._-]+")
+
+
 def show(job_id: str) -> dict | None:
+    """A job's record as `subfleet runs show` gives it, or, once Subfleet's retention has archived the
+    finished job, as `archived` reads it back."""
     try:
         proc = subprocess.run(["subfleet", "runs", "show", job_id, "--json"], capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
         return None
     if proc.returncode != 0:
-        return None
+        return archived(job_id)
     try:
         info = json.loads(proc.stdout)
     except ValueError:
         return None
     return info if isinstance(info, dict) else None
+
+
+def archived(job_id: str) -> dict | None:
+    """A finished job that Subfleet's retention moved to its archive, which `subfleet runs show` no
+    longer knows: put its files back with `subfleet retention restore`, then read the job and attempt
+    rows the archive keeps, in the shape `runs show` gives. None when there is no such archive or the
+    restore fails."""
+    if not JOB_ID.fullmatch(job_id):
+        return None
+    rows_path = paths.JOBS.parent / "archive" / job_id / "rows.json"
+    try:
+        rows = json.loads(rows_path.read_text())["rows"]
+        jobs = [r for r in rows["jobs"] if r.get("job_id") == job_id]
+        attempts = [a for a in rows["attempts"] if a.get("job_id") == job_id]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not (paths.JOBS / job_id).is_dir():
+        try:
+            proc = subprocess.run(["subfleet", "retention", "restore", job_id], capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            return None
+        if proc.returncode != 0 or not (paths.JOBS / job_id).is_dir():
+            return None
+    return {"job": jobs[0] if jobs else {}, "attempts": attempts}
 
 
 def prior_decisions() -> dict[str, str]:
@@ -102,6 +131,7 @@ def judge(row: dict, folder: Path) -> dict:
     if canary:
         problems.append("the context wrote the sandbox's code word: it read a folder note")
     record = {
+        "launch_shape": audit.launch_shape(launch),
         "tool_calls": check["tool_calls"],
         "model_served": check["model_served"],
         "attested": check["attested"],

@@ -141,7 +141,8 @@ def test_the_sent_prompt_must_match_the_registered_one():
     reg = "<!-- subfleet:headless -->\nMOCK registered prompt\n"
     exact = audit.sent_prompt(reg, reg)
     assert exact["ok"] and exact["lead_chars"] == 0 and exact["lead_sha256"] is None
-    assert audit.sent_prompt(reg.rstrip("\n"), reg)["ok"]
+    assert not audit.sent_prompt(reg.rstrip("\n"), reg)["ok"]  # byte for byte: a line feed counts
+    assert not audit.sent_prompt(reg + "\n", reg)["ok"]
     led = audit.sent_prompt("MOCK headless note\n\n" + reg, reg)
     assert not led["ok"] and led["lead_chars"] == len("MOCK headless note\n\n") and led["lead_sha256"]
     assert not audit.sent_prompt(reg + "MOCK extra", reg)["ok"]

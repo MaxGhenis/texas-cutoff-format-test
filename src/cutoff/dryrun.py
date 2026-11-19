@@ -16,8 +16,12 @@ counting and the model needs a new one. An earlier dry run still gets collected 
 job ends, against the prompt its job was given, and keeps the state it earned; it just no longer
 counts (`outputs/dryrun.json` marks each attempt `current` or not). So a change that is later undone
 brings its dry runs back, and no caller can discard another's. A change inside Subfleet or a
-provider's CLI leaves the signature alone; the audit of each context names every launch argument it
-allows, so such a change fails contexts until a deviation admits it.
+provider's CLI leaves the signature alone, so each dry run and context also records the shape of the
+launch Subfleet made (`audit.launch_shape`): the provider's arguments, apart from the session id and
+answer file that name each job, its folder and the environment variables it removed. A passed dry
+run stops counting once a context sent after its job finished shows another shape (`drifted`), and
+the model waits for a new dry run, which `cutoff tick` sends. The audit still checks every context's
+launch against the arguments it allows.
 
 The dry run sends no study text, so it checks only the sandbox and may run before the registration's
 stamp. Dispatch holds a model until its dry run has passed. A dry run that ends with no answer goes
@@ -35,6 +39,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from datetime import datetime
 
 from . import audit, design, paths, store
 from .prompts import HEADLESS_MARKER
@@ -97,13 +102,49 @@ def current(family: str) -> list[dict]:
     return [a for a in read_meta(family)["attempts"] if a.get("signature") == sig]
 
 
+def _when(stamp) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def shape(family: str, att: dict) -> str | None:
+    """The launch shape of a dry run: as recorded, or from the launch record it keeps."""
+    if att.get("launch_shape"):
+        return att["launch_shape"]
+    launch = folder() / family / f"a{att['attempt']}" / "launch.json"
+    try:
+        return audit.launch_shape(json.loads(launch.read_text()))
+    except (OSError, ValueError):
+        return None
+
+
+def drifted(family: str, att: dict) -> int:
+    """How many of the family's context attempts, sent after this dry run's job finished, Subfleet
+    launched in another shape (`audit.launch_shape`). Contexts go out only after a dry run passes, so
+    those are the contexts sent while it counted."""
+    own, since = shape(family, att), _when(att.get("finished_at"))
+    if not own or since is None:
+        return 0
+    n = 0
+    for r in store.design_rows():
+        if r["family"] != family:
+            continue
+        for a in store.read_meta(r["context"])["attempts"]:
+            sent = _when(a.get("dispatched_at"))
+            n += bool(a.get("launch_shape") and a["launch_shape"] != own and sent is not None and sent > since)
+    return n
+
+
 def standing(family: str) -> str:
     """passed; live (a dry run awaits its job); review (its `prior_context` awaits the blinded reading);
     held (two failed dry runs, three with no answer, or one read as contaminated, and none passed); or
-    due. Only dry runs of the current launch count (`current`)."""
+    due. Only dry runs of the current launch count (`current`), and a passed one stops counting once a
+    context sent after it shows another launch shape (`drifted`): the model then needs a new one."""
     atts = current(family)
     states = [a["state"] for a in atts]
-    if "passed" in states:
+    if any(a["state"] == "passed" and not drifted(family, a) for a in atts):
         return "passed"
     if "submitted" in states:
         return "live"
@@ -170,6 +211,7 @@ def judge(family: str, attempt_folder, prompt: str | None = PROMPT) -> dict:
     (attempt_folder / "final.md").write_text(check["final"])
     record = {
         "prompt_sha256": None if prompt is None else hashlib.sha256(prompt.encode()).hexdigest(),
+        "launch_shape": audit.launch_shape(launch),
         "problems": problems,
         "tool_calls": check["tool_calls"],
         "model_served": check["model_served"],
@@ -299,6 +341,7 @@ def write_public() -> None:
             "signature": signature(fam),
             "attempts": [
                 {"current": a.get("signature") == signature(fam),
+                 "launch_shape": shape(fam, a), "contexts_launched_otherwise": drifted(fam, a),
                  **{k: a.get(k) for k in ("attempt", "state", "signature", "prompt_sha256", "job_state", "finished_at",
                                           "problems", "tool_calls", "model_served", "attested", "canary",
                                           "prior_context_none", "prior_key", "contaminated")}}  # fmt: skip
@@ -332,6 +375,8 @@ def main(family: str | None = None, again: bool = False, show=None) -> int:
                       f"times, or one read as contaminated; read them in {folder() / fam} and send the next "
                       f"with `cutoff dryrun --family {fam} --again`")  # fmt: skip
             elif s == "due" or (s == "held" and again):
+                if moved := sum(drifted(fam, a) for a in current(fam) if a["state"] == "passed"):
+                    print(f"{fam}: Subfleet launched {moved} context(s) differently from the passed dry run")
                 if problems:
                     for p in problems:
                         print("refusing to send a dry run:", p)

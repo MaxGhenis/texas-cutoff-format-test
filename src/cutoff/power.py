@@ -106,7 +106,9 @@ def table() -> str:
         f"{stats.t.ppf(0.95, design.N_FILES - 1):.2f} standard errors, stays under it: a standard error below "
         f"{t_margin / stats.t.ppf(0.95, design.N_FILES - 1):.3f} points. With six contexts a cell and no spread across "
         "files, that needs a within-cell spread below "
-        f"{t_margin / stats.t.ppf(0.95, design.N_FILES - 1) * math.sqrt(16 * 2 * 6 / (2 * design.SUM_W2)):.2f} points. "
+        f"{t_margin / stats.t.ppf(0.95, design.N_FILES - 1) * math.sqrt(16 * 2 * 6 / (2 * design.SUM_W2)):.2f} points, "
+        "if a grid context's six answers vary independently. Grid answers that move together, as when a "
+        "context shifts all six by one amount, give its jump less spread, and the limit rises. "
         "The registration treats Talarico's share as a secondary result for that reason.",
     ]
     return "\n".join(lines) + "\n"

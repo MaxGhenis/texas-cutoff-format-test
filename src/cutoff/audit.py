@@ -127,6 +127,25 @@ CODEX_SETTINGS = {
 }
 
 
+# The two launch values that name the job itself: a Claude session id and Codex's answer file.
+JOB_VALUES = {"--session-id", "--output-last-message"}
+
+
+def launch_shape(launch: dict) -> str | None:
+    """A hash of how Subfleet launched an attempt: the provider's arguments, with the two values that
+    name the job (`JOB_VALUES`) blanked, its working folder and the environment variables it removed.
+    Two launches share a shape when Subfleet launched them alike; None when no launch is on record."""
+    argv = launch.get("argv") if isinstance(launch, dict) else None
+    if not isinstance(argv, list) or not argv:
+        return None
+    argv = _normal(argv)
+    blanked = ["*" if i and argv[i - 1] in JOB_VALUES else a for i, a in enumerate(argv)]
+    env = launch.get("env_remove")
+    shape = {"argv": blanked, "cwd": launch.get("cwd"),
+             "env_remove": sorted(map(str, env)) if isinstance(env, list) else env}  # fmt: skip
+    return hashlib.sha256(json.dumps(shape, sort_keys=True).encode()).hexdigest()
+
+
 def _same_folder(a, b) -> bool:
     return bool(a) and bool(b) and os.path.realpath(str(a)) == os.path.realpath(str(b))
 
@@ -135,9 +154,9 @@ def sent_prompt(sent: str, registered: str) -> dict:
     """Whether the prompt as sent matches the registered prompt, and what, if anything, came before it.
 
     Every registered prompt opens with Subfleet's headless marker, so Subfleet adds no note of its own
-    and the two must match. `lead_chars` and `lead_sha256` record any text ahead of a prompt that
-    otherwise ends with the registered one, which fails the check."""
-    s, r = sent.rstrip("\n"), registered.rstrip("\n")
+    and the two must match byte for byte, line feeds included. `lead_chars` and `lead_sha256` record
+    any text ahead of a prompt that otherwise ends with the registered one, which fails the check."""
+    s, r = sent, registered
     ends = s.endswith(r)
     lead = s[: len(s) - len(r)] if ends else ""
     return {

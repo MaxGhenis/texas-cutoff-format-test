@@ -76,12 +76,12 @@ def test_both_names_in_the_winner_fail():
     [
         (lambda a: a["forecaster"].pop("prior_context"), "prior_context"),
         (lambda a: a["nodes"].pop("ercot_pause_lifted"), "ercot_pause_lifted"),
-        (lambda a: a["nodes"]["ercot_pause_lifted"]["forecasts"].update({"dem_60.0": {"p": 0.1}}), "unexpected"),
+        (lambda a: a["nodes"]["ercot_pause_lifted"]["forecasts"].update({"dem_60.0": {"p": 0.1}}), "forecasts: 1 key"),
         (lambda a: a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_44.0"].update({"p": 1.2}), "probability"),
         (lambda a: a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_44.0"].update({"p": "40%"}), "probability"),
         (lambda a: a["nodes"]["senate_dem_share"]["forecasts"]["dem_44.0"].update({"p05": 60.0}), "decrease"),
         (lambda a: a["nodes"]["senate_dem_share"]["forecasts"]["dem_44.0"].update({"p95": 75.0}), "lie in"),
-        (lambda a: a["nodes"].update({"extra_question": {"forecasts": {}}}), "unexpected question"),
+        (lambda a: a["nodes"].update({"extra_question": {"forecasts": {}}}), "nodes: 1 key"),
     ],
 )
 def test_each_defect_fails_with_its_problem_named(change, problem):
@@ -214,7 +214,7 @@ def test_a_stray_key_without_an_object_goes_and_is_recorded():
 def test_a_stray_key_that_holds_an_object_is_not_repaired():
     a = answer()
     a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_60.0"] = {"p": 0.5}
-    with pytest.raises(R.ResponseError, match="1 unexpected forecast key"):
+    with pytest.raises(R.ResponseError, match="forecasts: 1 key"):
         R.read_answer(fenced(a), KEYS)
 
 
@@ -253,3 +253,106 @@ def test_no_problem_echoes_what_the_model_wrote():
     problems = exc.value.problems
     assert len(problems) >= 6 and all("MOCK news" not in p for p in problems), problems
     assert any("a string of" in p for p in problems)
+
+
+# ------------------------------------------------------------------------------ the template's keys
+
+
+def _keys_of(obj):
+    return {k: _keys_of(v) for k, v in obj.items()} if isinstance(obj, dict) else None
+
+
+@pytest.mark.parametrize("arm", ["grid", "alone", "told"])
+def test_the_parser_checks_the_template_each_brief_gives(arm):
+    """The keys `parse` allows are the keys of the template in the committed brief."""
+    from pathlib import Path
+
+    text = (Path(__file__).parent.parent / "briefs" / f"{arm}.md").read_text()
+    block = text.split("## Response template", 1)[1].split("```json\n", 1)[1].split("\n```", 1)[0]
+    if arm == "grid":
+        assert _keys_of(json.loads(block)) == _keys_of(R.template(KEYS))
+    else:
+        assert _keys_of(json.loads(block.replace("<<KEY>>", "dem_53.0"))) == _keys_of(R.template(("dem_53.0",), 53.0))
+
+
+def test_forecasts_for_other_scenarios_fail_wherever_they_sit():
+    """An isolated answer may not carry forecasts at other shares, inside a forecast or beside it."""
+    key = ("dem_53.0",)
+    others = {k: {"p": 0.3} for k in KEYS if k != "dem_53.0"}
+    inside = answer(key, cell=53.0)
+    inside["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_53.0"]["other_scenarios"] = others
+    top = answer(key, cell=53.0)
+    top["other_scenarios"] = others
+    in_scenario = answer(key, cell=53.0)
+    in_scenario["scenario"]["also"] = {"hinojosa_share": 47.0}
+    for a in (inside, top, in_scenario):
+        with pytest.raises(R.ResponseError, match="the template lacks"):
+            R.read_answer(fenced(a), key, 53.0)
+
+
+def test_a_grid_answer_with_a_scenario_object_fails():
+    a = answer()
+    a["scenario"] = {"hinojosa_share": 53.0, "winner": "Hinojosa"}
+    with pytest.raises(R.ResponseError, match="the answer: 1 key"):
+        R.read_answer(fenced(a), KEYS)
+
+
+def test_a_stray_scalar_at_any_level_goes_and_is_recorded():
+    key = ("dem_53.0",)
+    a = answer(key, cell=53.0)
+    a["nodes"]["ercot_pause_lifted"]["forecasts"]["dem_53.0"]["confidence"] = "MOCK"
+    a["scenario"]["party"] = "MOCK"
+    a["forecaster"]["version"] = 2
+    a["comment"] = None
+    out, repairs = R.read_answer(fenced(a), key, 53.0)
+    assert sorted((r["where"], r["key"]) for r in repairs) == [
+        ("forecaster", "version"), ("nodes.ercot_pause_lifted.forecasts.dem_53.0", "confidence"),
+        ("scenario", "party"), ("the answer", "comment"),
+    ]  # fmt: skip
+    assert out.values["ercot_pause_lifted"] == {"dem_53.0": 0.4}
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda a: a["forecaster"].update({"notes": {"dem_47.0": 0.3}}),
+        lambda a: a["forecaster"].update({"model": ["MOCK"]}),
+        lambda a: a["nodes"]["ercot_pause_lifted"].update({"reasoning": {"dem_47.0": 0.3}}),
+        lambda a: a["nodes"]["ercot_pause_lifted"].update({"sources": [{"dem_47.0": 0.3}]}),
+        lambda a: a["nodes"]["ercot_pause_lifted"].update({"sources": "MOCK"}),
+    ],
+)
+def test_a_text_field_that_holds_anything_but_text_fails(change):
+    a = answer()
+    change(a)
+    with pytest.raises(R.ResponseError, match="must be"):
+        R.read_answer(fenced(a), KEYS)
+
+
+def test_the_text_fields_may_stay_empty_or_be_left_out():
+    a = answer()
+    a["forecaster"].update({"model": None, "notes": "MOCK"})
+    a["nodes"]["ercot_pause_lifted"]["sources"] = ["https://example.org/MOCK"]
+    a["nodes"]["senate_dem_share"].pop("reasoning")
+    assert R.read_answer(fenced(a), KEYS)[1] == []
+
+
+@pytest.mark.parametrize(
+    "winner, ok",
+    [
+        ("Hinojosa", True), ("hinojosa", True), (" HINOJOSA. ", True), ("Gina Hinojosa", True),
+        ("Hinojosa did not win", False), ("Not Hinojosa", False), ("Hinojosa's opponent", False),
+        ("Hinojosa (D)", False), ("Abbott", False), ("Greg Abbott", False), ("Hinojosa, Abbott", False),
+        ("", False), (None, False), (53, False),
+    ],
+)  # fmt: skip
+def test_the_winner_must_be_the_surname_or_full_name_and_nothing_else(winner, ok):
+    key = ("dem_53.0",)
+    a = answer(key, cell=53.0)
+    a["scenario"]["winner"] = winner
+    if ok:
+        assert R.parse(a, key, 53.0)
+    else:
+        with pytest.raises(R.ResponseError, match="winner"):
+            R.parse(a, key, 53.0)
+    assert R.names_winner("Greg Abbott", "abbott") and R.names_winner("abbott", "abbott")

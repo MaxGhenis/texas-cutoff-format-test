@@ -387,3 +387,65 @@ def test_flags_prints_the_readers_rule_above_the_texts(capsys):
     assert cli.main(["flags"]) == 0
     out = capsys.readouterr().out
     assert out.startswith(collect.READING_RULE) and "declines to describe" in out
+
+
+# ------------------------------------------------------------------------------- the launch's shape
+
+
+@pytest.mark.parametrize("family", design.FAMILIES)
+def test_the_launch_shape_ignores_the_job_names_and_sees_everything_else(family):
+    launch = record(family, GOOD)["launch"]
+    own = audit.launch_shape(launch)
+    other_job = json.loads(json.dumps(launch))
+    flag = "--session-id" if family == "opus" else "--output-last-message"
+    if flag not in other_job["argv"]:
+        other_job["argv"] += [flag, "MOCK-a"]
+        own = audit.launch_shape(other_job)
+    other_job["argv"][other_job["argv"].index(flag) + 1] = "MOCK-b"
+    assert audit.launch_shape(other_job) == own
+    for change in (
+        lambda l: l["argv"].append("--verbose"),
+        lambda l: l.update(cwd="/MOCK/elsewhere"),
+        lambda l: l.update(env_remove=["MOCK_VAR"]),
+        lambda l: l["argv"].__setitem__(1, "MOCK"),
+    ):
+        changed = json.loads(json.dumps(other_job))
+        change(changed)
+        assert audit.launch_shape(changed) != own
+    assert audit.launch_shape({}) is None
+
+
+def test_a_passed_dry_run_stops_counting_once_a_later_context_launches_otherwise():
+    fam = "opus"
+    own = audit.launch_shape(record(fam, GOOD)["launch"])
+    dryrun.write_meta(meta(fam, "passed", finished_at="2026-11-20T10:00:00Z", launch_shape=own))
+    assert dryrun.standing(fam) == "passed"
+    row = next(r for r in store.design_rows() if r["family"] == fam)
+    store.write_meta({"context": row["context"], "attempts": [
+        {"attempt": 1, "state": "passed", "dispatched_at": "2026-11-20T09:00:00Z", "launch_shape": "MOCK-older"},
+        {"attempt": 2, "state": "passed", "dispatched_at": "2026-11-20T11:00:00Z", "launch_shape": own},
+    ]})  # fmt: skip
+    assert dryrun.standing(fam) == "passed"  # an earlier context, and a later one launched alike, leave it standing
+    m = store.read_meta(row["context"])
+    m["attempts"].append({"attempt": 3, "state": "failed", "dispatched_at": "2026-11-20T12:00:00Z", "launch_shape": "MOCK-new"})
+    store.write_meta(m)
+    assert dryrun.drifted(fam, dryrun.read_meta(fam)["attempts"][0]) == 1
+    assert dryrun.standing(fam) == "due" and not dryrun.passed(fam)
+    assert dryrun.standing("sol") == "due"  # the other model's contexts are its own
+    newer = dryrun.read_meta(fam)
+    newer["attempts"].append({"attempt": 2, "state": "passed", "signature": dryrun.signature(fam),
+                              "finished_at": "2026-11-20T13:00:00Z", "launch_shape": "MOCK-new"})  # fmt: skip
+    dryrun.write_meta(newer)
+    assert dryrun.standing(fam) == "passed"  # a new dry run of the new launch counts
+    dryrun.write_public()
+    public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())[fam]["attempts"]
+    assert [a["contexts_launched_otherwise"] for a in public] == [1, 0]
+    assert [a["launch_shape"] for a in public] == [own, "MOCK-new"]
+
+
+def test_a_dry_run_collected_before_shapes_were_recorded_reads_its_shape_from_its_launch():
+    fam = "sol"
+    folder = dryrun.folder() / fam / "a1"
+    write_attempt(folder, fam, GOOD)
+    att = {"attempt": 1, "state": "passed"}
+    assert dryrun.shape(fam, att) == audit.launch_shape(json.loads((folder / "launch.json").read_text()))

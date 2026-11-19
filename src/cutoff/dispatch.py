@@ -143,7 +143,9 @@ def main(wave: int | None = None, family: str | None = None, limit: int | None =
             for pid in bad:
                 print(f"refusing to dispatch: the prompt file {pid}.md does not match design/prompts.csv")
             return 1
-        sent = 0
+        # Each model's room first, then one pass down the seeded order (design/contexts.csv), so the
+        # two models' contexts go out in the order the seed set, each within its own cap.
+        room: dict[str, int] = {}
         for fam in design.FAMILIES:
             if family and fam != family:
                 continue
@@ -157,47 +159,50 @@ def main(wave: int | None = None, family: str | None = None, limit: int | None =
             lift = pilot_ok and (by_hand or not why)
             if why and not lift:
                 print("holding", why)
-            room = (max(cap, 1) if lift else cap) - live
-            for r in todo:
-                if room <= 0 or (limit is not None and sent >= limit):
-                    break
-                if r["family"] != fam or (wave is not None and r["wave"] != wave):
+            room[fam] = (max(cap, 1) if lift else cap) - live
+        sent = 0
+        for r in todo:
+            if limit is not None and sent >= limit:
+                break
+            fam = r["family"]
+            if room.get(fam, 0) <= 0 or (wave is not None and r["wave"] != wave):
+                continue
+            meta = metas[r["context"]]
+            attempt = len(meta["attempts"]) + 1
+            cmd = command(r, attempt)
+            if dry_run:
+                print("would send", r["name"], r["context"], f"(attempt {attempt})")
+            else:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                job_id = None
+                for line in proc.stdout.splitlines():
+                    try:
+                        obj = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    job = obj.get("job") if isinstance(obj.get("job"), dict) else {}
+                    job_id = obj.get("job_id") or job.get("job_id")
+                    if job_id:
+                        break
+                if proc.returncode != 0 or not job_id:
+                    print(f"subfleet refused {r['context']} (rc {proc.returncode}): {proc.stderr[-400:]}")
+                    room[fam] = 0  # this model's lanes are closed or Subfleet is busy: try again next tick
                     continue
-                meta = metas[r["context"]]
-                attempt = len(meta["attempts"]) + 1
-                cmd = command(r, attempt)
-                if dry_run:
-                    print("would send", r["name"], r["context"], f"(attempt {attempt})")
-                else:
-                    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                    job_id = None
-                    for line in proc.stdout.splitlines():
-                        try:
-                            obj = json.loads(line)
-                        except ValueError:
-                            continue
-                        if not isinstance(obj, dict):
-                            continue
-                        job = obj.get("job") if isinstance(obj.get("job"), dict) else {}
-                        job_id = obj.get("job_id") or job.get("job_id")
-                        if job_id:
-                            break
-                    if proc.returncode != 0 or not job_id:
-                        print(f"subfleet refused {r['context']} (rc {proc.returncode}): {proc.stderr[-400:]}")
-                        break  # the lanes are closed or Subfleet is busy: try again next tick
-                    meta["attempts"].append(
-                        {
-                            "attempt": attempt,
-                            "request_id": request_id(r["context"], attempt),
-                            "job_id": job_id,
-                            "command": cmd,
-                            "dispatched_at": store.now(),
-                            "state": "submitted",
-                        }
-                    )
-                    store.write_meta(meta)
-                    print("sent", r["name"], r["context"], job_id)
-                room -= 1
-                sent += 1
+                meta["attempts"].append(
+                    {
+                        "attempt": attempt,
+                        "request_id": request_id(r["context"], attempt),
+                        "job_id": job_id,
+                        "command": cmd,
+                        "dispatched_at": store.now(),
+                        "state": "submitted",
+                    }
+                )
+                store.write_meta(meta)
+                print("sent", r["name"], r["context"], job_id)
+            room[fam] -= 1
+            sent += 1
         print(f"{'would send' if dry_run else 'sent'} {sent}; {len(todo)} were due")
     return 0

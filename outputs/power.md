@@ -48,4 +48,4 @@ Spread across each family's six accepted sealed runs. It mixes context noise wit
 
 ## Talarico's share
 
-The margin is 0.1 points. Equivalence can show only if the 90% interval's half-width, 1.75 standard errors, stays under it: a standard error below 0.057 points. With six contexts a cell and no spread across files, that needs a within-cell spread below 0.40 points. The registration treats Talarico's share as a secondary result for that reason.
+The margin is 0.1 points. Equivalence can show only if the 90% interval's half-width, 1.75 standard errors, stays under it: a standard error below 0.057 points. With six contexts a cell and no spread across files, that needs a within-cell spread below 0.40 points, if a grid context's six answers vary independently. Grid answers that move together, as when a context shifts all six by one amount, give its jump less spread, and the limit rises. The registration treats Talarico's share as a secondary result for that reason.

@@ -291,6 +291,39 @@ def pass_one(family: str) -> dict:
     return r
 
 
+def test_dispatch_follows_the_seeded_order_across_both_models(ready):
+    """One pass down design/contexts.csv, each model within its own cap: not one model, then the other."""
+    pass_one("opus"), pass_one("sol")
+    assert dispatch.main() == 0
+    names = [c[c.index("-n") + 1] for c in ready]
+    due = [r for r in ROWS if r["wave"] == 1 and store.summary(store.read_meta(r["context"]))["status"] != "passed"]
+    room = {f: dispatch.MAX_IN_FLIGHT for f in ("opus", "sol")}
+    expected = []
+    for r in due:
+        if room[r["family"]] > 0:
+            expected.append(r["name"])
+            room[r["family"]] -= 1
+    assert names == expected and len(names) == 2 * dispatch.MAX_IN_FLIGHT
+    families = [next(r["family"] for r in ROWS if r["name"] == n) for n in names]
+    assert families != sorted(families)  # the seed interleaves the two models
+
+
+def test_a_refusal_for_one_model_leaves_the_other_running(ready, monkeypatch):
+    pass_one("opus"), pass_one("sol")
+    sent = []
+
+    def refuse_sol(cmd, **kwargs):
+        if "sol61" in cmd:
+            return SimpleNamespace(returncode=1, stdout="", stderr="MOCK: lanes closed")
+        sent.append(cmd)
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"job_id": f"MOCK-{len(sent)}"}) + "\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", refuse_sol)
+    assert dispatch.main() == 0
+    assert len(sent) == dispatch.MAX_IN_FLIGHT
+    assert all(next(r["family"] for r in ROWS if r["name"] == c[c.index("-n") + 1]) == "opus" for c in sent)
+
+
 def test_dispatch_sends_wave_1_in_order_and_records_each_job(ready):
     pass_one("opus")
     assert dispatch.main(family="opus", limit=2) == 0
@@ -552,3 +585,45 @@ def test_the_replicate_rule_waits_for_every_first_batch_reading(monkeypatch, cap
     assert analysis.write_replicates() == 1
     assert "1 of 156 contexts still running or awaiting a reading" in capsys.readouterr().out
     assert not (paths.OUTPUTS / "replicates.json").exists()
+
+
+# ------------------------------------------------------------------------------ archived Subfleet jobs
+
+
+def test_a_job_that_retention_archived_is_restored_and_read_from_its_rows(monkeypatch):
+    job_id = "20261114-123739-tcf-MOCK-a1"
+    archive = paths.JOBS.parent / "archive" / job_id
+    archive.mkdir(parents=True)
+    rows = {"jobs": [{"job_id": job_id, "state": "succeeded", "finished_at": "2026-11-14T20:03:34Z"}],
+            "attempts": [{"job_id": job_id, "attempt_id": f"{job_id}/a1", "state": "succeeded", "lane_id": "MOCK"},
+                         {"job_id": "20261114-000000-other", "attempt_id": "other/a1", "state": "failed"}]}  # fmt: skip
+    (archive / "rows.json").write_text(json.dumps({"job_id": job_id, "rows": rows, "schema": 1}))
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ["subfleet", "runs", "show"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr=f"subfleet: unknown job {job_id}")
+        assert cmd == ["subfleet", "retention", "restore", job_id]
+        (paths.JOBS / job_id / "a1").mkdir(parents=True)
+        return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    info = collect.show(job_id)
+    assert info == {"job": rows["jobs"][0], "attempts": rows["attempts"][:1]}
+    assert [c[1] for c in calls] == ["runs", "retention"]
+    calls.clear()
+    assert collect.show(job_id) == info and [c[1] for c in calls] == ["runs"]  # restored once: no second restore
+
+
+def test_an_unknown_job_with_no_archive_or_a_failed_restore_reads_as_none(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="", stderr="MOCK")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert collect.show("20261114-123739-tcf-MOCK-a1") is None
+    archive = paths.JOBS.parent / "archive" / "20261114-123739-tcf-MOCK-a2"
+    archive.mkdir(parents=True)
+    (archive / "rows.json").write_text(json.dumps({"rows": {"jobs": [], "attempts": []}}))
+    assert collect.show("20261114-123739-tcf-MOCK-a2") is None  # the restore failed
+    assert collect.archived("../../etc") is None

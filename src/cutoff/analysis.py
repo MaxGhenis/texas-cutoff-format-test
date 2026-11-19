@@ -189,7 +189,12 @@ def contrasts(sj: dict, q: str, families) -> dict:
 
 def cross(js: dict, q: str, arm: str = "grid") -> dict:
     """The jump by whose research (rows) and who answers (columns), over the accepted runs' files, and
-    the two differences it splits the families' gap into."""
+    the two differences it splits the families' gap into.
+
+    The two parts add up to the gap, Sol's jump on Sol's files minus Opus's on Opus's, only when every
+    accepted file has a jump from both models: with six files from each family, both parts then weight
+    each family's files alike. With any jump missing, the parts need not add up, so the split reports
+    neither and counts the files that lack one."""
     table: dict = {}
     for src in design.FAMILIES:
         table[src] = {}
@@ -201,15 +206,19 @@ def cross(js: dict, q: str, arm: str = "grid") -> dict:
         for f in sources.ACCEPTED
         if (f, "sol", arm, q) in js and (f, "opus", arm, q) in js
     }
-    cells = [table[s][m] for s in design.FAMILIES for m in design.FAMILIES]
-    research = None
-    if all(c is not None for c in cells):
+    missing = len(sources.ACCEPTED) - len(by_file)
+    research, reasoning, gap = None, None, None
+    if not missing:
         research = float(np.mean([table["sol"][m] - table["opus"][m] for m in design.FAMILIES]))
+        reasoning = paired(list(by_file.values()))
+        gap = table["sol"]["sol"] - table["opus"]["opus"]
     return {
         "arm": arm,
         "jump_by_source_then_answerer": table,
+        "files_missing_a_jump": missing,
+        "gap_sol_minus_opus": gap,
         "research_sol_minus_opus": research,
-        "reasoning_sol_minus_opus": paired(list(by_file.values())),
+        "reasoning_sol_minus_opus": reasoning,
     }
 
 
@@ -491,9 +500,11 @@ def report(result: dict, strict: dict | None = None, reg: dict | None = None) ->
         t = c["jump_by_source_then_answerer"]
         d = 2 if q == "senate_dem_share" else 1
         rs = c["reasoning_sol_minus_opus"]
+        split = (f"{_pm(c['research_sol_minus_opus'], d)} | {_pm(rs.get('mean'), d)}{_ci(rs, 'ci95', d)}" if rs is not None
+                 else f"no split: {c['files_missing_a_jump']} file(s) lack a model's jump | no split")  # fmt: skip
         lines.append(
             f"| `{q}` | {_pm(t['opus']['opus'], d)} | {_pm(t['opus']['sol'], d)} | {_pm(t['sol']['opus'], d)} | {_pm(t['sol']['sol'], d)} | "
-            f"{_pm(c['research_sol_minus_opus'], d)} | {_pm(rs.get('mean'), d)}{_ci(rs, 'ci95', d)} |"
+            f"{split} |"
         )
     if strict is not None:
         lines += ["", "## Without repaired answers or answers whose prior context needed a reading", "",

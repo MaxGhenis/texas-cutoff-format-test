@@ -224,6 +224,46 @@ def test_the_cross_table_splits_research_from_reasoning():
     assert cross["reasoning_sol_minus_opus"]["mean"] == pytest.approx(GRID_JUMP["sol"][ERCOT] - GRID_JUMP["opus"][ERCOT])
 
 
+@settings(max_examples=50, deadline=None)
+@given(st.lists(st.floats(-40, 40, allow_nan=False), min_size=24, max_size=24))
+def test_with_every_jump_present_the_two_parts_add_up_to_the_gap(values):
+    from cutoff import sources
+
+    files = sorted(sources.ACCEPTED)
+    js = {(f, m, "grid", ERCOT): values[2 * i + j] for i, f in enumerate(files) for j, m in enumerate(design.FAMILIES)}
+    c = A.cross(js, ERCOT)
+    assert c["files_missing_a_jump"] == 0
+    assert c["research_sol_minus_opus"] + c["reasoning_sol_minus_opus"]["mean"] == pytest.approx(c["gap_sol_minus_opus"], abs=1e-9)
+
+
+def test_a_missing_jump_withholds_the_split():
+    """The review's case: a gap of 100 that a split over the remaining files would put at 104.5."""
+    from cutoff import sources
+
+    js = {}
+    for f in sources.ACCEPTED:
+        src = sources.family(f)
+        js[(f, "opus", "grid", ERCOT)] = 0.0
+        js[(f, "sol", "grid", ERCOT)] = 100.0 if src == "sol" else 0.0
+    del js[("opus-1", "sol", "grid", ERCOT)]
+    c = A.cross(js, ERCOT)
+    assert c["files_missing_a_jump"] == 1
+    assert c["research_sol_minus_opus"] is None and c["reasoning_sol_minus_opus"] is None and c["gap_sol_minus_opus"] is None
+    assert c["jump_by_source_then_answerer"]["sol"]["sol"] == 100.0
+    assert "no split: 1 file(s) lack a model's jump" in A.report({**run(), "cross": {**run()["cross"], ERCOT: c}})
+
+
+def test_paired_against_values_worked_out_apart_from_the_code():
+    """t on n - 1 degrees of freedom: with [1, 2, 3], df = 2. On df = 3 the equivalence test would pass."""
+    r = A.paired([1.0, 2.0, 3.0], 3.5)
+    assert r["mean"] == 2.0 and r["sd"] == 1.0 and r["se"] == pytest.approx(0.5773502692)
+    assert r["p_zero"] == pytest.approx(0.0741799002, abs=1e-9)
+    assert r["ci90"] == pytest.approx((0.3141455392, 3.6858544608), abs=1e-9)
+    assert r["ci95"] == pytest.approx((-0.4841377118, 4.4841377118), abs=1e-9)
+    assert r["p_equivalent"] == pytest.approx(0.0608449672, abs=1e-9)
+    assert r["equivalent"] is False
+
+
 def test_the_report_renders_in_every_case():
     for res in (run(), run({"alone": {ERCOT: 8.0}}), run(offset=9.0)):
         text = A.report(res, res)

@@ -63,17 +63,57 @@ def expected_winner(cell: float) -> str:
     return "hinojosa" if cell > 50.0 else "abbott"
 
 
+def template(keys: tuple[str, ...], cell: float | None = None) -> dict:
+    """The keys of the template a brief gives (`scripts/make_briefs.py`), as nested dicts whose leaves
+    are None: the forecaster's fields, each question's forecasts at `keys`, reasoning and sources, and
+    for an isolated context (`cell` given) the scenario."""
+    def value(q: str) -> dict:
+        return dict.fromkeys(QUANTILE_KEYS) if q in QUANTITY else {"p": None}
+
+    spec: dict = {
+        "forecaster": {"model": None, "prior_context": None, "notes": None},
+        "nodes": {q: {"forecasts": {k: value(q) for k in keys}, "reasoning": None, "sources": None} for q in QUESTIONS},
+    }
+    if cell is not None:
+        spec["scenario"] = {"hinojosa_share": None, "winner": None}
+    return spec
+
+
+def _strays(obj, spec, where: str = "") -> list[tuple[dict, str, str]]:
+    """(the object, the key, where it sits) for each key the template lacks, at every level. `where`
+    names template keys only: a stray key is the model's own text."""
+    out: list[tuple[dict, str, str]] = []
+    if isinstance(obj, dict) and isinstance(spec, dict):
+        for key in list(obj):
+            if key in spec:
+                out += _strays(obj[key], spec[key], f"{where}.{key}" if where else key)
+            else:
+                out.append((obj, key, where))
+    return out
+
+
 def parse(obj, keys: tuple[str, ...], cell: float | None = None) -> Answer:
     """Check a parsed answer. `keys` are the forecast keys its template had (the six cells, or one);
-    `cell` is the assigned share of an isolated context, whose answer must restate its scenario."""
+    `cell` is the assigned share of an isolated context, whose answer must restate its scenario. The
+    answer may hold no key its template lacks, at any level, so no forecast sits outside the places
+    the template gives one. The model's name, notes, reasoning and sources may stay empty, and hold
+    text (sources, a list of text) when filled."""
     if not isinstance(obj, dict) or not isinstance(obj.get("nodes"), dict):
         raise ResponseError(["the answer must be an object with a 'nodes' object"])
     problems: list[str] = []
+    strays: dict[str, int] = {}
+    for _, _, where in _strays(obj, template(keys, cell)):
+        strays[where] = strays.get(where, 0) + 1
+    for where, n in sorted(strays.items()):
+        problems.append(f"{where or 'the answer'}: {n} key(s) the template lacks")
     out = Answer(values={})
     out.forecaster = obj.get("forecaster") if isinstance(obj.get("forecaster"), dict) else {}
     prior = out.forecaster.get("prior_context")
     if not isinstance(prior, str) or not prior.strip():
         problems.append("forecaster.prior_context: required; describe anything beyond the brief, or write 'none'")
+    for name in ("model", "notes"):
+        if out.forecaster.get(name) is not None and not isinstance(out.forecaster[name], str):
+            problems.append(f"forecaster.{name}: must be text, got {_shown(out.forecaster[name])}")
     nodes = obj["nodes"]
     for q in QUESTIONS:
         item = nodes.get(q)
@@ -90,14 +130,13 @@ def parse(obj, keys: tuple[str, ...], cell: float | None = None) -> Answer:
             checked = _check_value(q, v, f"{q}[{key}]", problems)
             if checked is not None:
                 vals[key] = checked
-        extra = set(forecasts) - set(keys)
-        if extra:
-            problems.append(f"{q}: {len(extra)} unexpected forecast key(s)")
         out.values[q] = vals
-        out.reasoning[q] = item.get("reasoning") if isinstance(item.get("reasoning"), str) else ""
-    unknown = set(nodes) - set(QUESTIONS)
-    if unknown:
-        problems.append(f"{len(unknown)} unexpected question(s)")
+        reasoning, sources = item.get("reasoning"), item.get("sources")
+        if reasoning is not None and not isinstance(reasoning, str):
+            problems.append(f"{q}.reasoning: must be text, got {_shown(reasoning)}")
+        if sources is not None and not (isinstance(sources, list) and all(isinstance(x, str) for x in sources)):
+            problems.append(f"{q}.sources: must be a list of text, got {_shown(sources)}")
+        out.reasoning[q] = reasoning if isinstance(reasoning, str) else ""
     if cell is not None:
         out.scenario = obj.get("scenario") if isinstance(obj.get("scenario"), dict) else None
         problems += _scenario_problems(out.scenario, cell)
@@ -154,11 +193,22 @@ def _scenario_problems(scenario: dict | None, cell: float) -> list[str]:
     if share is None or abs(share - cell) > SHARE_TOLERANCE:
         problems.append(f"scenario.hinojosa_share: {_shown(scenario.get('hinojosa_share'))} is not the assigned {cell:g}")
     winner = scenario.get("winner")
-    text = winner.lower() if isinstance(winner, str) else ""
-    right, wrong = expected_winner(cell), expected_winner(100.0 - cell)
-    if right not in text or wrong in text:
-        problems.append(f"scenario.winner: {_shown(winner)} does not name {right.title()} alone")
+    right = expected_winner(cell)
+    if not names_winner(winner, right):
+        problems.append(f"scenario.winner: {_shown(winner)} is not {right.title()}'s surname or full name")
     return problems
+
+
+FIRST_NAMES = {"hinojosa": ("gina",), "abbott": ("greg", "gregory")}
+
+
+def names_winner(winner, surname: str) -> bool:
+    """Whether `winner` is the candidate's surname or first name and surname, and nothing else: case,
+    punctuation and spacing aside. "Hinojosa did not win" names no winner."""
+    if not isinstance(winner, str):
+        return False
+    words = re.findall(r"[a-z]+", winner.lower())
+    return words == [surname] or any(words == [first, surname] for first in FIRST_NAMES[surname])
 
 
 # ----------------------------------------------------------------------------------------- extraction
@@ -172,9 +222,9 @@ _FENCE = re.compile(r"^[ \t]*```[^\n`]*\n(.*?)\n[ \t]*```", re.S | re.M)
 # that carries no forecast, and nothing else:
 # - a comma that follows an element and has only white space between it and a closing brace or bracket,
 #   outside strings, goes, when the JSON parses only without it;
-# - a key that the template lacks, inside a question's `forecasts` or among `nodes`, goes when its value
-#   holds no object (null, text, a number, true or false, or a list with no object in it at any depth):
-#   only an object can hold a forecast.
+# - a key that the template lacks, at any level of the answer, goes when its value holds no object
+#   (null, text, a number, true or false, or a list with no object in it at any depth): only an object
+#   can hold a forecast. This study applies it at every level of the template.
 # An answer that needs any other change fails. `cutoff analyze` reports the results without the repaired
 # answers beside the main ones.
 
@@ -257,24 +307,15 @@ def _holds_object(value) -> bool:
     return isinstance(value, list) and any(_holds_object(v) for v in value)
 
 
-def drop_strays(obj, keys: tuple[str, ...]) -> list[dict]:
-    """Drop from a parsed answer, in place, each key the template lacks whose value holds no object,
-    among `nodes` or inside a question's `forecasts`; return a record of each."""
+def drop_strays(obj, keys: tuple[str, ...], cell: float | None = None) -> list[dict]:
+    """Drop from a parsed answer, in place, each key its template lacks, at any level, whose value holds
+    no object; return a record of each."""
     fixes: list[dict] = []
-    if not isinstance(obj, dict) or not isinstance(obj.get("nodes"), dict):
+    if not isinstance(obj, dict):
         return fixes
-    nodes = obj["nodes"]
-    for key in list(nodes):
-        if key not in QUESTIONS and not _holds_object(nodes[key]):
-            fixes.append({"repair": "dropped_key", "where": "nodes", "key": key, "value": nodes.pop(key)})
-    for q in QUESTIONS:
-        item = nodes.get(q)
-        forecasts = item.get("forecasts") if isinstance(item, dict) else None
-        if not isinstance(forecasts, dict):
-            continue
-        for key in list(forecasts):
-            if key not in keys and not _holds_object(forecasts[key]):
-                fixes.append({"repair": "dropped_key", "where": f"{q}.forecasts", "key": key, "value": forecasts.pop(key)})
+    for parent, key, where in _strays(obj, template(keys, cell)):
+        if not _holds_object(parent[key]):
+            fixes.append({"repair": "dropped_key", "where": where or "the answer", "key": key, "value": parent.pop(key)})
     return fixes
 
 
@@ -288,7 +329,7 @@ def read_answer(text: str, keys: tuple[str, ...], cell: float | None = None) -> 
             return parse(copy.deepcopy(obj), keys, cell), []
         except ResponseError:
             pass
-    repairs += drop_strays(obj, keys)
+    repairs += drop_strays(obj, keys, cell)
     return parse(obj, keys, cell), repairs
 
 

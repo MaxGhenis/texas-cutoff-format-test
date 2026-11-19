@@ -1,10 +1,12 @@
 {
  "opus": {
-  "standing": "live",
+  "standing": "passed",
   "signature": "57bb651ed1f847cc7a68f05eb070dba922acd46831614fa59f3c5ac27d3b7cae",
   "attempts": [
    {
     "current": false,
+    "launch_shape": "adc22a214c3ff6a3149657ffd65138a0489f8732c664b6b519f39872b46b2fee",
+    "contexts_launched_otherwise": 0,
     "attempt": 1,
     "state": "passed",
     "signature": null,
@@ -22,6 +24,8 @@
    },
    {
     "current": false,
+    "launch_shape": null,
+    "contexts_launched_otherwise": 0,
     "attempt": 2,
     "state": "withdrawn",
     "signature": "f8b9d6b5d4d6f1508190afc294f542b4c5eac0c3e601dad36fe11fb17a8760ac",
@@ -39,29 +43,33 @@
    },
    {
     "current": true,
+    "launch_shape": "adc22a214c3ff6a3149657ffd65138a0489f8732c664b6b519f39872b46b2fee",
+    "contexts_launched_otherwise": 0,
     "attempt": 3,
-    "state": "submitted",
+    "state": "passed",
     "signature": "57bb651ed1f847cc7a68f05eb070dba922acd46831614fa59f3c5ac27d3b7cae",
-    "prompt_sha256": null,
-    "job_state": null,
-    "finished_at": null,
-    "problems": null,
-    "tool_calls": null,
-    "model_served": null,
-    "attested": null,
-    "canary": null,
-    "prior_context_none": null,
+    "prompt_sha256": "2fcabf85d5eb8ebfa8ec6ebd89ee24f4e2bcf4a783200ca35ef994b9def03b51",
+    "job_state": "succeeded",
+    "finished_at": "2026-11-14T20:03:34Z",
+    "problems": [],
+    "tool_calls": 0,
+    "model_served": "claude-opus-5-5",
+    "attested": true,
+    "canary": false,
+    "prior_context_none": true,
     "prior_key": null,
     "contaminated": null
    }
   ]
  },
  "sol": {
-  "standing": "live",
+  "standing": "passed",
   "signature": "c349abf73ea884a4de94e484fd40567b2d89f79d94afe2af79b30596432e9643",
   "attempts": [
    {
     "current": false,
+    "launch_shape": "a811219e97b89d149d099633a834fb182011f583957582d8d4c5d2dd4de75218",
+    "contexts_launched_otherwise": 0,
     "attempt": 1,
     "state": "review",
     "signature": null,
@@ -79,6 +87,8 @@
    },
    {
     "current": false,
+    "launch_shape": null,
+    "contexts_launched_otherwise": 0,
     "attempt": 2,
     "state": "withdrawn",
     "signature": "2564f4e51e99243c041639260e668ebcd0d496da8317f1f724777e94222e585d",
@@ -96,18 +106,20 @@
    },
    {
     "current": true,
+    "launch_shape": "a811219e97b89d149d099633a834fb182011f583957582d8d4c5d2dd4de75218",
+    "contexts_launched_otherwise": 0,
     "attempt": 3,
-    "state": "submitted",
+    "state": "passed",
     "signature": "c349abf73ea884a4de94e484fd40567b2d89f79d94afe2af79b30596432e9643",
-    "prompt_sha256": null,
-    "job_state": null,
-    "finished_at": null,
-    "problems": null,
-    "tool_calls": null,
+    "prompt_sha256": "2fcabf85d5eb8ebfa8ec6ebd89ee24f4e2bcf4a783200ca35ef994b9def03b51",
+    "job_state": "succeeded",
+    "finished_at": "2026-11-15T08:53:57Z",
+    "problems": [],
+    "tool_calls": 0,
     "model_served": null,
-    "attested": null,
-    "canary": null,
-    "prior_context_none": null,
+    "attested": false,
+    "canary": false,
+    "prior_context_none": true,
     "prior_key": null,
     "contaminated": null
    }
