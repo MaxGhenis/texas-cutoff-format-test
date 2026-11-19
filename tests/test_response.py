@@ -342,7 +342,9 @@ def test_the_text_fields_may_stay_empty_or_be_left_out():
     [
         ("Hinojosa", True), ("hinojosa", True), (" HINOJOSA. ", True), ("Gina Hinojosa", True),
         ("Hinojosa did not win", False), ("Not Hinojosa", False), ("Hinojosa's opponent", False),
-        ("Hinojosa (D)", False), ("Abbott", False), ("Greg Abbott", False), ("Hinojosa, Abbott", False),
+        ("Gina Hinojosa (D)", True), ("Hinojosa, Democrat", True), ("Governor Hinojosa", True),
+        ("Hinojosa (R)", False), ("Hinojosa wins", False), ("Hinojosa (D) did not win", False),
+        ("Abbott", False), ("Greg Abbott", False), ("Hinojosa, Abbott", False), ("Hinojosa (D), Abbott (R)", False),
         ("", False), (None, False), (53, False),
     ],
 )  # fmt: skip
@@ -356,3 +358,4 @@ def test_the_winner_must_be_the_surname_or_full_name_and_nothing_else(winner, ok
         with pytest.raises(R.ResponseError, match="winner"):
             R.parse(a, key, 53.0)
     assert R.names_winner("Greg Abbott", "abbott") and R.names_winner("abbott", "abbott")
+    assert R.names_winner("Gov. Greg Abbott (R)", "abbott") and not R.names_winner("Abbott (D)", "abbott")

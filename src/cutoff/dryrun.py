@@ -63,6 +63,7 @@ Reply with one JSON object in a ```json fence:
 """
 MAX_FAILED = 2
 MAX_LOST = 3
+MAX_DRIFTED = 2  # passed dry runs that later contexts' launches left behind, before a person looks
 NAMESPACE = uuid.uuid5(design.NAMESPACE, "dryrun")
 
 
@@ -139,18 +140,21 @@ def drifted(family: str, att: dict) -> int:
 
 def standing(family: str) -> str:
     """passed; live (a dry run awaits its job); review (its `prior_context` awaits the blinded reading);
-    held (two failed dry runs, three with no answer, or one read as contaminated, and none passed); or
-    due. Only dry runs of the current launch count (`current`), and a passed one stops counting once a
-    context sent after it shows another launch shape (`drifted`): the model then needs a new one."""
+    held (two failed dry runs, three with no answer, one read as contaminated, or two passed ones that
+    later launches left behind, and none counting); or due. Only dry runs of the current launch count
+    (`current`), and a passed one stops counting once a context sent after it shows another launch
+    shape (`drifted`): the model then needs a new one."""
     atts = current(family)
     states = [a["state"] for a in atts]
-    if any(a["state"] == "passed" and not drifted(family, a) for a in atts):
+    left = sum(a["state"] == "passed" and drifted(family, a) > 0 for a in atts)
+    if states.count("passed") > left:
         return "passed"
     if "submitted" in states:
         return "live"
     if "review" in states:
         return "review"
-    if states.count("failed") >= MAX_FAILED or states.count("lost") >= MAX_LOST or any(a.get("contaminated") for a in atts):
+    if (states.count("failed") >= MAX_FAILED or states.count("lost") >= MAX_LOST or left >= MAX_DRIFTED
+            or any(a.get("contaminated") for a in atts)):  # fmt: skip
         return "held"
     return "due"
 
@@ -372,11 +376,13 @@ def main(family: str | None = None, again: bool = False, show=None) -> int:
                 print(f"holding {fam}: its dry run's prior_context awaits the blinded reading (cutoff flags)")
             elif s == "held" and not again:
                 print(f"holding {fam}: its dry runs failed {MAX_FAILED} times, ended with no answer {MAX_LOST} "
-                      f"times, or one read as contaminated; read them in {folder() / fam} and send the next "
+                      f"times, one read as contaminated, or Subfleet launched later contexts differently from "
+                      f"{MAX_DRIFTED} passed ones; read them in {folder() / fam} and send the next "
                       f"with `cutoff dryrun --family {fam} --again`")  # fmt: skip
             elif s == "due" or (s == "held" and again):
-                if moved := sum(drifted(fam, a) for a in current(fam) if a["state"] == "passed"):
-                    print(f"{fam}: Subfleet launched {moved} context(s) differently from the passed dry run")
+                if any(drifted(fam, a) for a in current(fam) if a["state"] == "passed"):
+                    print(f"holding {fam}: Subfleet launched a later context differently from its passed dry run, "
+                          "so it gets a new one")  # fmt: skip
                 if problems:
                     for p in problems:
                         print("refusing to send a dry run:", p)

@@ -200,14 +200,21 @@ def _scenario_problems(scenario: dict | None, cell: float) -> list[str]:
 
 
 FIRST_NAMES = {"hinojosa": ("gina",), "abbott": ("greg", "gregory")}
+PARTY = {"hinojosa": ("d", "dem", "democrat", "democratic"), "abbott": ("r", "rep", "gop", "republican")}
+TITLES = ("gov", "governor")
 
 
 def names_winner(winner, surname: str) -> bool:
-    """Whether `winner` is the candidate's surname or first name and surname, and nothing else: case,
-    punctuation and spacing aside. "Hinojosa did not win" names no winner."""
+    """Whether `winner` is the candidate's surname or first name and surname, case, punctuation and
+    spacing aside. A title ("Governor") may stand before the name and the candidate's own party label
+    ("(D)", "Republican") after it; nothing else may. "Hinojosa did not win" names no winner."""
     if not isinstance(winner, str):
         return False
     words = re.findall(r"[a-z]+", winner.lower())
+    if words and words[0] in TITLES:
+        words = words[1:]
+    if words and words[-1] in PARTY[surname]:
+        words = words[:-1]
     return words == [surname] or any(words == [first, surname] for first in FIRST_NAMES[surname])
 
 

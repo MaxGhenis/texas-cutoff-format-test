@@ -437,9 +437,13 @@ def test_a_passed_dry_run_stops_counting_once_a_later_context_launches_otherwise
                               "finished_at": "2026-11-20T13:00:00Z", "launch_shape": "MOCK-new"})  # fmt: skip
     dryrun.write_meta(newer)
     assert dryrun.standing(fam) == "passed"  # a new dry run of the new launch counts
+    m = store.read_meta(row["context"])
+    m["attempts"].append({"attempt": 4, "state": "passed", "dispatched_at": "2026-11-20T14:00:00Z", "launch_shape": "MOCK-third"})
+    store.write_meta(m)
+    assert dryrun.standing(fam) == "held"  # two passed dry runs left behind: a person looks before the next
     dryrun.write_public()
     public = json.loads((paths.OUTPUTS / "dryrun.json").read_text())[fam]["attempts"]
-    assert [a["contexts_launched_otherwise"] for a in public] == [1, 0]
+    assert [a["contexts_launched_otherwise"] for a in public] == [2, 1]
     assert [a["launch_shape"] for a in public] == [own, "MOCK-new"]
 
 

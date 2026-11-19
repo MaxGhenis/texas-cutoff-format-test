@@ -18,6 +18,7 @@ from cutoff.jump import KEYS, QUESTIONS
 
 ROWS = store.design_rows()
 REAL_SANDBOX_PROBLEMS = dispatch.sandbox_problems  # read at import, before any fixture stubs it
+REAL_DRYRUN_PASSED = dispatch.dryrun.passed  # read at import, before the `ready` fixture stubs it
 
 
 def meta(*states):
@@ -627,3 +628,30 @@ def test_an_unknown_job_with_no_archive_or_a_failed_restore_reads_as_none(monkey
     (archive / "rows.json").write_text(json.dumps({"rows": {"jobs": [], "attempts": []}}))
     assert collect.show("20261114-123739-tcf-MOCK-a2") is None  # the restore failed
     assert collect.archived("../../etc") is None
+
+
+def test_a_context_launched_otherwise_holds_its_model_until_a_new_dry_run_passes(ready, monkeypatch, capsys):
+    """End to end: collect a context whose launch changed, and dispatch holds that model and only that one."""
+    from cutoff import audit, dryrun
+
+    monkeypatch.setattr(dispatch.dryrun, "passed", REAL_DRYRUN_PASSED)
+    folder = attempt_folder(fenced(answer()))
+    monkeypatch.setattr(dispatch, "prompt_hashes", lambda: {
+        f.stem: hashlib.sha256(f.read_bytes()).hexdigest() for f in (paths.PRIVATE / "prompts").glob("*.md")})  # fmt: skip
+    launch = json.loads((folder / "launch.json").read_text())
+    for fam in ("opus", "sol"):
+        dryrun.write_meta({"family": fam, "attempts": [{
+            "attempt": 1, "state": "passed", "signature": dryrun.signature(fam), "finished_at": "2026-11-20T10:00:00Z",
+            "launch_shape": audit.launch_shape(launch) if fam == "opus" else "MOCK-sol-shape"}]})  # fmt: skip
+    assert dryrun.passed("opus") and dryrun.passed("sol")
+    launch["env_remove"] = ["MOCK_NEW_VARIABLE"]  # Subfleet now scrubs another variable
+    (folder / "launch.json").write_text(json.dumps(launch))
+    rec = collect.judge(GRID, folder)
+    assert rec["launch_shape"] == audit.launch_shape(launch)
+    store.write_meta({"context": GRID["context"], "attempts": [
+        {"attempt": 1, "job_id": "MOCK", "dispatched_at": "2026-11-20T11:00:00Z", **rec}]})  # fmt: skip
+    assert dryrun.standing("opus") == "due" and dryrun.standing("sol") == "passed"
+    assert dispatch.main() == 0
+    assert "holding opus: its dry run has not passed" in capsys.readouterr().out
+    families = {next(r["family"] for r in ROWS if r["name"] == c[c.index("-n") + 1]) for c in ready}
+    assert families == {"sol"}
