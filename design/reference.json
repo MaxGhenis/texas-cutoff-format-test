@@ -1,0 +1,541 @@
+{
+ "note": "Each accepted sealed run's own answers at the six cells (points) and the registered jump (jump.py). These are model forecasts under stated scenarios, not observations.",
+ "cells": [
+  44.0,
+  47.0,
+  49.5,
+  50.5,
+  53.0,
+  56.0
+ ],
+ "runs": {
+  "opus-1": {
+   "family": "opus",
+   "response": "runs/opus-1/response.json",
+   "sha256": "51b41834b81a24464c46de734db746d156cd6d63d25ded48b9802f1e0479fef3",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      45.39999999999999,
+      48.3375,
+      50.737500000000004,
+      51.653125,
+      54.015625,
+      56.815625
+     ],
+     "jump": -0.042685439560447236,
+     "signed": -0.042685439560447236
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      82.0,
+      80.0,
+      77.0,
+      55.00000000000001,
+      50.0,
+      45.0
+     ],
+     "jump": -21.071428571428527,
+     "signed": 21.071428571428527
+    },
+    "special_session_data_centers": {
+     "cells": [
+      15.0,
+      16.0,
+      18.0,
+      32.0,
+      35.0,
+      38.0
+     ],
+     "jump": 13.516483516483488,
+     "signed": 13.516483516483488
+    }
+   }
+  },
+  "opus-3": {
+   "family": "opus",
+   "response": "runs/opus-3/response.json",
+   "sha256": "762603ecf899a1ccf0930a0558a55786b1528429416ed4464e3c5178dabe477a",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.446875,
+      49.446875000000006,
+      51.946875000000006,
+      52.846875,
+      55.246874999999996,
+      58.04687500000001
+     ],
+     "jump": -0.05934065934067867,
+     "signed": -0.05934065934067867
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      82.0,
+      80.0,
+      75.0,
+      55.00000000000001,
+      50.0,
+      45.0
+     ],
+     "jump": -19.291208791208746,
+     "signed": 19.291208791208746
+    },
+    "special_session_data_centers": {
+     "cells": [
+      17.0,
+      18.0,
+      20.0,
+      25.0,
+      26.0,
+      28.000000000000004
+     ],
+     "jump": 4.554945054945042,
+     "signed": 4.554945054945042
+    }
+   }
+  },
+  "opus-4": {
+   "family": "opus",
+   "response": "runs/opus-4/response.json",
+   "sha256": "3eb73837d21b97d92770e3e9ee1c4f2aaa38178f8491ea8004dccd7a437bc2a2",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.684375,
+      49.48437499999999,
+      51.784375000000004,
+      52.684375,
+      54.984375,
+      57.784375
+     ],
+     "jump": -0.04065934065934229,
+     "signed": -0.04065934065934229
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      78.0,
+      76.0,
+      72.0,
+      50.0,
+      46.0,
+      42.0
+     ],
+     "jump": -21.329670329670286,
+     "signed": 21.329670329670286
+    },
+    "special_session_data_centers": {
+     "cells": [
+      17.0,
+      18.0,
+      20.0,
+      42.0,
+      45.0,
+      50.0
+     ],
+     "jump": 20.999999999999957,
+     "signed": 20.999999999999957
+    }
+   }
+  },
+  "opus-8": {
+   "family": "opus",
+   "response": "runs/opus-8/response.json",
+   "sha256": "dc296d32885722ea105758e43f585249f81a201615f42d5c6b5fdbf4758b7a09",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.584375,
+      49.484375,
+      51.784375,
+      52.7,
+      55.0,
+      57.784375
+     ],
+     "jump": -0.04682348901098621,
+     "signed": -0.04682348901098621
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      83.0,
+      81.0,
+      78.0,
+      55.00000000000001,
+      50.0,
+      46.0
+     ],
+     "jump": -22.32967032967028,
+     "signed": 22.32967032967028
+    },
+    "special_session_data_centers": {
+     "cells": [
+      17.0,
+      18.0,
+      20.0,
+      36.0,
+      38.0,
+      40.0
+     ],
+     "jump": 15.664835164835138,
+     "signed": 15.664835164835138
+    }
+   }
+  },
+  "opus-9": {
+   "family": "opus",
+   "response": "runs/opus-9/response.json",
+   "sha256": "22a41db9cb870da6248418b7f677e32346fa8d7426db7330dcf2aa079798cbdb",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.3,
+      49.3,
+      51.8,
+      52.800000000000004,
+      55.2,
+      58.00000000000001
+     ],
+     "jump": 0.04065934065934407,
+     "signed": 0.04065934065934407
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      82.0,
+      80.0,
+      77.0,
+      52.0,
+      48.0,
+      43.0
+     ],
+     "jump": -23.961538461538424,
+     "signed": 23.961538461538424
+    },
+    "special_session_data_centers": {
+     "cells": [
+      20.0,
+      22.0,
+      25.0,
+      42.0,
+      42.0,
+      40.0
+     ],
+     "jump": 17.329670329670297,
+     "signed": 17.329670329670297
+    }
+   }
+  },
+  "opus-10": {
+   "family": "opus",
+   "response": "runs/opus-10/response.json",
+   "sha256": "a1304c22c844a689f01bef3b9c43215c3d24256b5eb2bf8f5aae9a83f0f24109",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      45.668749999999996,
+      48.568749999999994,
+      50.96875000000001,
+      51.86875,
+      54.168749999999996,
+      56.98437500000001
+     ],
+     "jump": -0.05952953296704244,
+     "signed": -0.05952953296704244
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      72.0,
+      70.0,
+      66.0,
+      42.0,
+      38.0,
+      35.0
+     ],
+     "jump": -23.58791208791204,
+     "signed": 23.58791208791204
+    },
+    "special_session_data_centers": {
+     "cells": [
+      17.0,
+      18.0,
+      20.0,
+      33.0,
+      35.0,
+      37.0
+     ],
+     "jump": 12.664835164835141,
+     "signed": 12.664835164835141
+    }
+   }
+  },
+  "sol-1": {
+   "family": "sol",
+   "response": "runs/sol-1/response.json",
+   "sha256": "3d3906c29d4b450c6eb955332fde3ee92e3777ca7eae05dd9227f6a1a8f9353c",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      47.315625000000004,
+      49.9375,
+      52.199999999999996,
+      53.1,
+      55.3375,
+      58.0375
+     ],
+     "jump": 0.0201751373626351,
+     "signed": 0.0201751373626351
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      86.0,
+      82.0,
+      79.0,
+      69.0,
+      63.0,
+      56.99999999999999
+     ],
+     "jump": -8.406593406593384,
+     "signed": 8.406593406593384
+    },
+    "special_session_data_centers": {
+     "cells": [
+      31.0,
+      37.0,
+      43.0,
+      62.0,
+      65.0,
+      60.0
+     ],
+     "jump": 19.730769230769198,
+     "signed": 19.730769230769198
+    }
+   }
+  },
+  "sol-2": {
+   "family": "sol",
+   "response": "runs/sol-2/response.json",
+   "sha256": "a9a86d56332b22186f14bb53faff1c0bb656f67da2c357a48ae27d046f0a965c",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.99999999999999,
+      49.70000000000001,
+      52.0,
+      52.9,
+      55.1,
+      57.8
+     ],
+     "jump": -1.2434497875801753e-14,
+     "signed": -1.2434497875801753e-14
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      93.0,
+      92.0,
+      90.0,
+      84.0,
+      81.0,
+      78.0
+     ],
+     "jump": -5.5164835164835075,
+     "signed": 5.5164835164835075
+    },
+    "special_session_data_centers": {
+     "cells": [
+      28.000000000000004,
+      33.0,
+      39.0,
+      60.0,
+      64.0,
+      67.0
+     ],
+     "jump": 20.032967032966997,
+     "signed": 20.032967032966997
+    }
+   }
+  },
+  "sol-3": {
+   "family": "sol",
+   "response": "runs/sol-3/response.json",
+   "sha256": "addd5df0af48673d21627f75036636597e726d2070af1099d8b3834fbef0ae3d",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.7,
+      49.5,
+      51.900000000000006,
+      52.800000000000004,
+      55.1,
+      57.900000000000006
+     ],
+     "jump": -0.029670329670338447,
+     "signed": -0.029670329670338447
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      91.0,
+      88.0,
+      85.0,
+      72.0,
+      70.0,
+      68.0
+     ],
+     "jump": -12.258241758241734,
+     "signed": 12.258241758241734
+    },
+    "special_session_data_centers": {
+     "cells": [
+      28.000000000000004,
+      33.0,
+      39.0,
+      60.0,
+      64.0,
+      68.0
+     ],
+     "jump": 19.774725274725238,
+     "signed": 19.774725274725238
+    }
+   }
+  },
+  "sol-4": {
+   "family": "sol",
+   "response": "runs/sol-4/response.json",
+   "sha256": "c2a3bc8765ab7baef30a2a6c2964eb41f13c5ef5bbe7b54b3c77dbd686841a2d",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      47.084375,
+      49.909375,
+      52.131249999999994,
+      53.015625,
+      55.23125,
+      57.909375000000004
+     ],
+     "jump": -0.049124313186814206,
+     "signed": -0.049124313186814206
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      88.0,
+      85.0,
+      81.0,
+      69.0,
+      65.0,
+      61.0
+     ],
+     "jump": -11.071428571428546,
+     "signed": 11.071428571428546
+    },
+    "special_session_data_centers": {
+     "cells": [
+      32.0,
+      36.0,
+      41.0,
+      56.00000000000001,
+      59.0,
+      61.0
+     ],
+     "jump": 14.3296703296703,
+     "signed": 14.3296703296703
+    }
+   }
+  },
+  "sol-5": {
+   "family": "sol",
+   "response": "runs/sol-5/response.json",
+   "sha256": "84bdde1660519d4e2562f3e59f0c2a45e9bc8faa2c421407fb4f43e413b3676a",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      46.684375,
+      49.615624999999994,
+      52.015625,
+      52.915625000000006,
+      55.115624999999994,
+      57.74062500000001
+     ],
+     "jump": -0.029361263736264576,
+     "signed": -0.029361263736264576
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      92.0,
+      90.0,
+      87.0,
+      81.0,
+      78.0,
+      75.0
+     ],
+     "jump": -5.368131868131851,
+     "signed": 5.368131868131851
+    },
+    "special_session_data_centers": {
+     "cells": [
+      30.0,
+      33.0,
+      37.0,
+      56.00000000000001,
+      59.0,
+      61.0
+     ],
+     "jump": 18.478021978021946,
+     "signed": 18.478021978021946
+    }
+   }
+  },
+  "sol-6": {
+   "family": "sol",
+   "response": "runs/sol-6/response.json",
+   "sha256": "ccdecf0ee7b59a403fa6aa208a70a0a599065a7082e83ea5389963a471b88d2a",
+   "questions": {
+    "senate_dem_share": {
+     "cells": [
+      47.4,
+      50.1,
+      52.3,
+      53.199999999999996,
+      55.400000000000006,
+      57.99999999999999
+     ],
+     "jump": 0.014835164835160342,
+     "signed": 0.014835164835160342
+    },
+    "ercot_pause_lifted": {
+     "cells": [
+      91.0,
+      89.0,
+      87.0,
+      79.0,
+      75.0,
+      71.0
+     ],
+     "jump": -7.109890109890092,
+     "signed": 7.109890109890092
+    },
+    "special_session_data_centers": {
+     "cells": [
+      31.0,
+      36.0,
+      40.0,
+      57.99999999999999,
+      60.0,
+      61.0
+     ],
+     "jump": 17.109890109890063,
+     "signed": 17.109890109890063
+    }
+   }
+  }
+ },
+ "family_mean_jump": {
+  "opus": {
+   "senate_dem_share": -0.0347298534798588,
+   "ercot_pause_lifted": -21.928571428571384,
+   "special_session_data_centers": 14.121794871794842
+  },
+  "sol": {
+   "senate_dem_share": -0.012190934065939038,
+   "ercot_pause_lifted": -8.288461538461519,
+   "special_session_data_centers": 18.242673992673957
+  }
+ }
+}

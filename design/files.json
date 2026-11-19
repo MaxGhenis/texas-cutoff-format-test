@@ -1,0 +1,476 @@
+{
+ "header": "Each item below is something the research session's web tools returned on 2026-11-03, before polls closed, in the order it read them: search results and the text or extract of pages it opened. A script removed navigation text, duplicate lines and some passages. Items can conflict, and some are out of date.",
+ "files": [
+  {
+   "label": "opus-1",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-1/transcript.jsonl",
+     "sha256": "358b7cf7b19e242a28fadd306e5a9280d0da42152d764db056a33c6338c212a1"
+    }
+   ],
+   "used": "runs/opus-1/transcript.jsonl",
+   "items_in": 15,
+   "forecasts": 5,
+   "chars_screened": 1659,
+   "chances": 2,
+   "reader_kept": 4,
+   "failed_extracts": 1,
+   "duplicate_lines": 12,
+   "reader": 2,
+   "items_kept": 14,
+   "chars": 46580,
+   "sha256": "7b6ddbe5983170b31275b668e63b1784f1f4e285517c694cb2ee772b1bbcd534"
+  },
+  {
+   "label": "opus-2",
+   "family": "opus",
+   "accepted": false,
+   "sources": [
+    {
+     "path": "runs/opus-2/transcript.jsonl",
+     "sha256": "74f48673a67058e65562ee219f7a2f450210dfb8e2b159dbb79081ae0e2dc4d9"
+    }
+   ],
+   "used": "runs/opus-2/transcript.jsonl",
+   "items_in": 16,
+   "forecasts": 6,
+   "chars_screened": 7048,
+   "chances": 2,
+   "expectations": 2,
+   "failed_extracts": 1,
+   "market_items": 1,
+   "reader_kept": 1,
+   "reader": 3,
+   "duplicate_lines": 6,
+   "items_kept": 13,
+   "chars": 49010,
+   "sha256": "dfbe43245c508f347166433ad6ba7e2d30ac75d12aa2ba071aabcfce7b5334ea"
+  },
+  {
+   "label": "opus-3",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-3/transcript.jsonl",
+     "sha256": "5ece82f441dba5f7e28d072838c9ebc7f117395e205fc010cc8feb22f9071876"
+    }
+   ],
+   "used": "runs/opus-3/transcript.jsonl",
+   "items_in": 11,
+   "forecasts": 6,
+   "chars_screened": 1040,
+   "reader_kept": 5,
+   "reader": 1,
+   "items_kept": 11,
+   "chars": 31874,
+   "sha256": "cade9565c638d6a75fa7682382b52613d2d5fbc4e72f9951b5a171059519c28c"
+  },
+  {
+   "label": "opus-4",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-4/transcript.jsonl",
+     "sha256": "1dfeb75429037936a4d08573831db035d364cb67e53f1592b4ca8fcc32bf0b58"
+    }
+   ],
+   "used": "runs/opus-4/transcript.jsonl",
+   "items_in": 13,
+   "forecasts": 2,
+   "chars_screened": 705,
+   "reader_kept": 3,
+   "expectations": 1,
+   "duplicate_lines": 4,
+   "failed_extracts": 1,
+   "items_kept": 12,
+   "chars": 45064,
+   "sha256": "17e9a60014f7f10f29b0ef8d532f9d21cba015be8a8b76930abf0034f0d5fc4c"
+  },
+  {
+   "label": "opus-5",
+   "family": "opus",
+   "accepted": false,
+   "sources": [
+    {
+     "path": "runs/opus-5/transcript.jsonl",
+     "sha256": "691ca6647259660e2974d4be2d9118dedc0bf5c43eceea0a42ec2e6dfdf75a5f"
+    }
+   ],
+   "used": "runs/opus-5/transcript.jsonl",
+   "items_in": 15,
+   "forecasts": 7,
+   "chars_screened": 6581,
+   "chances": 2,
+   "duplicate_lines": 18,
+   "tool_voice": 1,
+   "market_items": 1,
+   "markets": 1,
+   "reader_kept": 3,
+   "expectations": 2,
+   "items_kept": 14,
+   "chars": 52796,
+   "sha256": "d5807cecefb8c10e810e92783ee4d0c50f1055886c8efa144a376550008889fb"
+  },
+  {
+   "label": "opus-6",
+   "family": "opus",
+   "accepted": false,
+   "sources": [
+    {
+     "path": "runs/opus-6/transcript.jsonl",
+     "sha256": "793943735c21afb23c22c815847cfee41b43ecb6ca2463319b15d731a688469c"
+    }
+   ],
+   "used": "runs/opus-6/transcript.jsonl",
+   "items_in": 17,
+   "reader_kept": 5,
+   "forecasts": 8,
+   "chars_screened": 1840,
+   "reader": 2,
+   "chances": 2,
+   "expectations": 2,
+   "duplicate_lines": 16,
+   "items_kept": 17,
+   "chars": 57687,
+   "sha256": "72ede2fb5dda56ef5d35194f5dd2acf7fadc4f6a1601e3268769625bdc5fd17a"
+  },
+  {
+   "label": "opus-7",
+   "family": "opus",
+   "accepted": false,
+   "sources": [
+    {
+     "path": "runs/opus-7/transcript.jsonl",
+     "sha256": "f8c5a4c8145f5cedb93658e1896c2b8ece0fb33029fdadbf71066cb9411f00a7"
+    }
+   ],
+   "used": "runs/opus-7/transcript.jsonl",
+   "items_in": 19,
+   "forecasts": 7,
+   "chars_screened": 7626,
+   "chances": 4,
+   "reader_kept": 5,
+   "tool_voice": 4,
+   "failed_extracts": 1,
+   "expectations": 2,
+   "duplicate_lines": 12,
+   "reader": 1,
+   "market_items": 1,
+   "items_kept": 17,
+   "chars": 52022,
+   "sha256": "652204033b77ff5d9ef6ba83d362fc015d40081cd8b8c4bb7661ea6a0803baea"
+  },
+  {
+   "label": "opus-8",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-8/transcript.jsonl",
+     "sha256": "16362678461d6a9d105b7222d9a5449527b3f4790e4b76cf446f17188a9f2aa5"
+    }
+   ],
+   "used": "runs/opus-8/transcript.jsonl",
+   "items_in": 14,
+   "forecasts": 4,
+   "chars_screened": 4822,
+   "expectations": 1,
+   "market_items": 1,
+   "items_kept": 13,
+   "chars": 39224,
+   "sha256": "3be7203ebd202bd21d1c6f04045d733854585071b59266298297afd6f6baf66d"
+  },
+  {
+   "label": "opus-9",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-9/transcript.jsonl",
+     "sha256": "c996295e337ca0cfb55fa45fcddb7e4db14186ef9ad40fc3edb7dfdc574eeff5"
+    }
+   ],
+   "used": "runs/opus-9/transcript.jsonl",
+   "items_in": 10,
+   "forecasts": 8,
+   "chars_screened": 1230,
+   "markets": 2,
+   "reader_kept": 4,
+   "duplicate_lines": 2,
+   "reader": 1,
+   "items_kept": 10,
+   "chars": 31834,
+   "sha256": "6b8ba937cdaa587c7a3e00bbc7bf2ee13ab55cad71cfeae5224436614fa511f1"
+  },
+  {
+   "label": "opus-10",
+   "family": "opus",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/opus-10/transcript.jsonl",
+     "sha256": "886841e7d96d2acdefaf39481e8c39ce4d1a69b75eae7059b58973f72514b105"
+    }
+   ],
+   "used": "runs/opus-10/transcript.jsonl",
+   "items_in": 16,
+   "forecasts": 7,
+   "chars_screened": 1462,
+   "chances": 2,
+   "reader_kept": 2,
+   "tool_voice": 1,
+   "duplicate_lines": 10,
+   "reader": 1,
+   "expectations": 1,
+   "items_kept": 15,
+   "chars": 57578,
+   "sha256": "d2a78f6177963762bc53f1ac50a60463042241d7e5b4bfcbf85945b5f40a12bb"
+  },
+  {
+   "label": "sol-1",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-1/codex-sessions/rollout-2026-11-03T13-10-04-01a1a29a-9cf9-7760-b550-ed0e1542e03a.jsonl",
+     "sha256": "e00e45bb076b9da653be29cf41c70f7cd1b4313a82bff49e35c762c2ab35c29e"
+    },
+    {
+     "path": "runs/sol-1/codex-sessions/rollout-2026-11-03T13-10-26-01a1a29a-f274-79c2-ade5-7b7fbeb088f4.jsonl",
+     "sha256": "1bc65e78d2135566bc3ea76b71b343b798266b5ca126b29dbf40b1bf429851e5"
+    },
+    {
+     "path": "runs/sol-1/codex-sessions/rollout-2026-11-03T13-10-31-01a1a29b-07b7-70e1-b833-8129c037cc4d.jsonl",
+     "sha256": "515fa908692bf743e6724564cc2613998f0501a1e0fda7eb6f61bf3ce672a84d"
+    },
+    {
+     "path": "runs/sol-1/codex-sessions/rollout-2026-11-03T13-10-37-01a1a29b-1e65-7943-b2bc-a8edf80b6da5.jsonl",
+     "sha256": "6109180abbefe514b8425924caf3573014c7fe1ba5653b3fdb3fe9e2d31545f1"
+    }
+   ],
+   "used": "runs/sol-1/codex-sessions/rollout-2026-11-03T13-10-04-01a1a29a-9cf9-7760-b550-ed0e1542e03a.jsonl",
+   "items_in": 100,
+   "duplicate_lines": 200,
+   "reader_kept": 12,
+   "reader": 1,
+   "chars_screened": 1700,
+   "titles_screened": 1,
+   "forecasts": 9,
+   "expectations": 1,
+   "items_kept": 92,
+   "chars": 115495,
+   "sha256": "8ec58db751b6008a2ae9acdbe0dfa9b59ae7f58d02d7c74d24bb27a566c4a6e3",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 644,
+    "chars": 685644
+   }
+  },
+  {
+   "label": "sol-2",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-2/codex-sessions/rollout-2026-11-03T13-14-08-01a1a29e-5711-7633-b4ae-5d75497af4e1.jsonl",
+     "sha256": "9a3f0f8ef01759ba481f0d0de8491bd9c56ad6fc49c5bd6e58cf00dac278b63f"
+    },
+    {
+     "path": "runs/sol-2/codex-sessions/rollout-2026-11-03T13-14-20-01a1a29e-851e-76b2-a195-8eb324f47d3d.jsonl",
+     "sha256": "3917179249c6c5179041c47f5994d89906c50d0476f61acfc5bd6ffafa740584"
+    },
+    {
+     "path": "runs/sol-2/codex-sessions/rollout-2026-11-03T13-14-28-01a1a29e-a3a5-7292-914a-f6ff03303a84.jsonl",
+     "sha256": "059b3dde00cfd48befa7a720aae8a06facd14d92f92fc4ae69db952a2956569f"
+    },
+    {
+     "path": "runs/sol-2/codex-sessions/rollout-2026-11-03T13-14-35-01a1a29e-bfc1-70b1-a703-61fe2eeab9e8.jsonl",
+     "sha256": "9d8b08113a7852882049f62ff9297e81c912eb4e8bbfc2e3d33c3fc02c454fff"
+    }
+   ],
+   "used": "runs/sol-2/codex-sessions/rollout-2026-11-03T13-14-08-01a1a29e-5711-7633-b4ae-5d75497af4e1.jsonl",
+   "items_in": 67,
+   "duplicate_lines": 818,
+   "expectations": 10,
+   "chars_screened": 3037,
+   "forecasts": 8,
+   "reader_kept": 8,
+   "chances": 2,
+   "reader": 3,
+   "titles_screened": 2,
+   "items_kept": 59,
+   "chars": 118495,
+   "sha256": "7e19c011ef7bbf14b38787d2f8f80dde8d42407513cd5a592cc590eb8b8ef28c",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 459,
+    "chars": 485144
+   }
+  },
+  {
+   "label": "sol-3",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-3/codex-sessions/rollout-2026-11-03T13-14-12-01a1a29e-6861-7bc1-b706-5bbaeb82f1d8.jsonl",
+     "sha256": "e85b235626b175f812def54244e8695cecd500bff1e42412957d0a74623daa3c"
+    },
+    {
+     "path": "runs/sol-3/codex-sessions/rollout-2026-11-03T13-14-22-01a1a29e-8c4c-71d0-bd84-22288cb989fb.jsonl",
+     "sha256": "0c053cd735d65d4b00082c5b82d94c858c8dab7725598bfedb8bfaebd60a3e90"
+    },
+    {
+     "path": "runs/sol-3/codex-sessions/rollout-2026-11-03T13-14-28-01a1a29e-a562-7f00-9533-e4422125231b.jsonl",
+     "sha256": "519f0a3d8d264e86751c710ae38cb9bf1d79183ff2a34f600ba22562a38b2c62"
+    },
+    {
+     "path": "runs/sol-3/codex-sessions/rollout-2026-11-03T13-14-34-01a1a29e-bb89-74b0-947f-24993a7af82a.jsonl",
+     "sha256": "8278b8bdcb6779471688e7e461eea4bd27f5ab929dc9dfe170f553ebe23d0ca0"
+    }
+   ],
+   "used": "runs/sol-3/codex-sessions/rollout-2026-11-03T13-14-12-01a1a29e-6861-7bc1-b706-5bbaeb82f1d8.jsonl",
+   "items_in": 176,
+   "duplicate_lines": 250,
+   "expectations": 13,
+   "chars_screened": 5811,
+   "reader_kept": 22,
+   "reader": 3,
+   "chances": 1,
+   "forecasts": 24,
+   "titles_screened": 2,
+   "items_kept": 170,
+   "chars": 224035,
+   "sha256": "969ff66108be8cf6618ef8830c64a8950d867607f6fa8f623c7be6782c5f16b5",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 539,
+    "chars": 545646
+   }
+  },
+  {
+   "label": "sol-4",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-4/codex-sessions/rollout-2026-11-03T13-14-13-01a1a29e-6aef-7c33-9f13-ec09cae47eaa.jsonl",
+     "sha256": "3370126aea23f0c2d252c96fb20d310519741ebb9b88b88281c108aa0bea9c03"
+    },
+    {
+     "path": "runs/sol-4/codex-sessions/rollout-2026-11-03T13-14-23-01a1a29e-9276-7b50-95f7-24797c993f44.jsonl",
+     "sha256": "ee007d9c6b700fd67112629d583748493829fd852ad00fda6e3c96aa58ef5f73"
+    },
+    {
+     "path": "runs/sol-4/codex-sessions/rollout-2026-11-03T13-14-30-01a1a29e-ad43-75f1-8117-da208f4a493e.jsonl",
+     "sha256": "7fccf491aabad51201a8876dd181a31425a0872291a931835696919dc306e93d"
+    },
+    {
+     "path": "runs/sol-4/codex-sessions/rollout-2026-11-03T13-14-35-01a1a29e-c2b6-7772-8cc7-921f254ff8ad.jsonl",
+     "sha256": "a04328fce9a9c1396e2f72aeffb8d2e67a6d8c45367dca9090b0dbe03769bfb6"
+    }
+   ],
+   "used": "runs/sol-4/codex-sessions/rollout-2026-11-03T13-14-13-01a1a29e-6aef-7c33-9f13-ec09cae47eaa.jsonl",
+   "items_in": 117,
+   "duplicate_lines": 686,
+   "forecasts": 13,
+   "chars_screened": 4106,
+   "expectations": 8,
+   "reader_kept": 10,
+   "titles_screened": 1,
+   "reader": 6,
+   "chances": 3,
+   "items_kept": 111,
+   "chars": 142551,
+   "sha256": "9d7774e25761345a25da448f18b8c83d8810db53a142fee67f86c955c8628c7c",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 464,
+    "chars": 495879
+   }
+  },
+  {
+   "label": "sol-5",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-5/codex-sessions/rollout-2026-11-03T13-14-13-01a1a29e-6b62-7042-a00e-483d10e0f3a1.jsonl",
+     "sha256": "15714b9d17f705811a8b8c2621cb02d306b5ac6b477401a771036797ec6471f1"
+    },
+    {
+     "path": "runs/sol-5/codex-sessions/rollout-2026-11-03T13-14-23-01a1a29e-903b-7fd0-ad53-fb14a982eab0.jsonl",
+     "sha256": "86166a483e867779531348ff7198647f023ff5092d9ed1fa8d39135d50ddc66d"
+    },
+    {
+     "path": "runs/sol-5/codex-sessions/rollout-2026-11-03T13-14-28-01a1a29e-a39b-7ac0-9ab8-82f482ce8000.jsonl",
+     "sha256": "daccd935308e5c5164cec858f3d0e334c022ace7cf2dc1b6b79500471bbcd52c"
+    },
+    {
+     "path": "runs/sol-5/codex-sessions/rollout-2026-11-03T13-14-32-01a1a29e-b603-75b3-834c-455836606410.jsonl",
+     "sha256": "e2991da426b6cb24403892d9ad97174bb58d3a02286c40e30297f42eadeb83f8"
+    }
+   ],
+   "used": "runs/sol-5/codex-sessions/rollout-2026-11-03T13-14-13-01a1a29e-6b62-7042-a00e-483d10e0f3a1.jsonl",
+   "items_in": 52,
+   "duplicate_lines": 740,
+   "expectations": 3,
+   "chars_screened": 952,
+   "reader_kept": 1,
+   "forecasts": 5,
+   "items_kept": 52,
+   "chars": 100477,
+   "sha256": "89e48ab495c3afe1d8ca57f4033193285d9bd1cc47719b628c7f471aff908cd4",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 609,
+    "chars": 580736
+   }
+  },
+  {
+   "label": "sol-6",
+   "family": "sol",
+   "accepted": true,
+   "sources": [
+    {
+     "path": "runs/sol-6/codex-sessions/rollout-2026-11-03T13-15-04-01a1a29f-3099-7fd1-90b4-758a040a3170.jsonl",
+     "sha256": "2c736f5046ffed059b93160ec6eb07fc9d6d876efa23681c2688a725848cb5ba"
+    },
+    {
+     "path": "runs/sol-6/codex-sessions/rollout-2026-11-03T13-15-16-01a1a29f-619a-7f40-b3e5-c2ecb9117630.jsonl",
+     "sha256": "dad3f51ae6e6fc305244f822c3515863a92e99661a103e795d081d2cfaf435a0"
+    },
+    {
+     "path": "runs/sol-6/codex-sessions/rollout-2026-11-03T13-15-22-01a1a29f-7a34-7530-b5bd-e11bb4ad1286.jsonl",
+     "sha256": "48eb7f3ecdcabe2146e7b904f01e5f48195ad2a8a8a8eefa3160493717823c6b"
+    },
+    {
+     "path": "runs/sol-6/codex-sessions/rollout-2026-11-03T13-15-29-01a1a29f-92de-7781-86d1-2a10ca3c23e2.jsonl",
+     "sha256": "3c019014db97e3c782dd460e1bc64e9b1b7b5d6fccbc9ca25d531801ce57e178"
+    }
+   ],
+   "used": "runs/sol-6/codex-sessions/rollout-2026-11-03T13-15-04-01a1a29f-3099-7fd1-90b4-758a040a3170.jsonl",
+   "items_in": 101,
+   "duplicate_lines": 100,
+   "reader": 7,
+   "chars_screened": 3505,
+   "forecasts": 9,
+   "titles_screened": 7,
+   "reader_kept": 7,
+   "expectations": 3,
+   "items_kept": 100,
+   "chars": 126341,
+   "sha256": "9cac16f5e2cf1a34b5bf4039899699f016b48f48d55739b20a16c8ddacb3730f",
+   "sub_agent_threads_left_out": {
+    "threads": 3,
+    "items": 495,
+    "chars": 521300
+   }
+  }
+ ]
+}
